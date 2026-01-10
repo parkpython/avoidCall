@@ -56,7 +56,7 @@ class _InCallScreenState extends State<InCallScreen> {
       wsScheme = 'ws://';
       host = baseUrl.substring(7);
     } else {
-      wsScheme = 'ws://';
+      wsScheme = 'wss://';
       host = baseUrl;
     }
     return '$wsScheme$host/ws/app/$callId';

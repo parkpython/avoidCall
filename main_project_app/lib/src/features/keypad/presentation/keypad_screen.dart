@@ -68,7 +68,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     try {
       var url = _backendUrl;
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'http://$url';
+        url = 'https://$url';
       }
 
       final response = await http.post(
