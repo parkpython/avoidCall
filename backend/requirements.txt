@@ -5,4 +5,4 @@ pydantic
 twilio
 openai
 deepgram-sdk>=3.4.0
-# Force Rebuild for Deepgram SDK
+# Force Rebuild for Deepgram SDK v3.4+
