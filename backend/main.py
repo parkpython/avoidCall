@@ -22,11 +22,15 @@ app = FastAPI()
 
 # --- Configuration and Clients ---
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-NGROK_URL = os.getenv("NGROK_URL")
+SERVER_DOMAIN = os.getenv("SERVER_DOMAIN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+# SERVER_DOMAIN 안전장치: https:// 제거
+if SERVER_DOMAIN:
+    SERVER_DOMAIN = SERVER_DOMAIN.replace("https://", "").replace("http://", "").strip("/")
 
 deepgram_client = DeepgramClient(DEEPGRAM_API_KEY)
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -107,8 +111,8 @@ class CallRequest(BaseModel):
 # --- API Endpoints ---
 @app.post("/call")
 async def call(request: CallRequest):
-    if not NGROK_URL:
-        return {"status": "error", "message": "NGROK_URL is not configured."}
+    if not SERVER_DOMAIN:
+        return {"status": "error", "message": "SERVER_DOMAIN is not configured."}
     
     call_id = str(uuid.uuid4())
     lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
@@ -129,7 +133,7 @@ async def call(request: CallRequest):
         twilio_call = twilio_client.calls.create(
             to=request.target_number,
             from_=TWILIO_PHONE_NUMBER,
-            url=f"https://{NGROK_URL}/voice/{call_id}",
+            url=f"https://{SERVER_DOMAIN}/voice/{call_id}",
             method="POST"
         )
         active_calls[call_id]["twilio_call_sid"] = twilio_call.sid
@@ -143,7 +147,7 @@ async def voice(call_id: str):
     response = VoiceResponse()
     if call_id in active_calls:
         connect = Connect()
-        connect.stream(url=f"wss://{NGROK_URL}/ws/twilio/{call_id}")
+        connect.stream(url=f"wss://{SERVER_DOMAIN}/ws/twilio/{call_id}")
         response.append(connect)
     else:
         response.say("Call session not found.")
