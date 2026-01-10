@@ -4,7 +4,6 @@ WORKDIR /app
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --force-reinstall deepgram-sdk==5.3.1
 COPY backend/ .
 
 # 👇 여기가 핵심입니다! (대괄호 없이 이렇게 적어야 $PORT가 숫자로 바뀝니다)
