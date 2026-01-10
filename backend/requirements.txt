@@ -4,4 +4,4 @@ python-dotenv
 pydantic
 twilio
 openai
-deepgram-sdk>=3.0
+deepgram-sdk==5.3.1
