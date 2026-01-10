@@ -12,9 +12,8 @@ from pydantic import BaseModel
 # Twilio, Deepgram, OpenAI
 from twilio.rest import Client as TwilioClient
 from twilio.twiml.voice_response import VoiceResponse, Connect
-from deepgram import DeepgramClient
-from deepgram.clients.live.v1.options import LiveOptions
-from deepgram.clients.live.v1.enums import LiveTranscriptionEvents
+# 3.4.0 버전은 이렇게 심플하게 부르면 다 알아먹음
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 from openai import AsyncOpenAI
 
 load_dotenv()
