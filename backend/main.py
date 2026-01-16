@@ -54,6 +54,7 @@ GREETINGS = {
 
 # Global Cache for TTS Audio to reduce latency
 TTS_CACHE = {}
+TRANSLATION_CACHE = {} # (text, target_lang) -> translated_text
 
 # --- Centralized Call Management ---
 # This dictionary will hold the state for each active call
@@ -108,7 +109,37 @@ class CallRequest(BaseModel):
     greeting_text: str = None  # 사용자가 설정한 인삿말 (옵션)
     ai_mediation: bool = True  # AI 번역 사용 여부 (기본값 True)
 
+class PrefetchRequest(BaseModel):
+    text: str
+    language: str
+
 # --- API Endpoints ---
+@app.post("/prefetch")
+async def prefetch(request: PrefetchRequest):
+    """미리 번역하고 TTS를 생성하여 캐시에 저장합니다."""
+    lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
+    target_lang = lang_settings["target"]
+    
+    # 1. Translation Cache Check & Execute
+    cache_key = (request.text, target_lang)
+    if cache_key in TRANSLATION_CACHE:
+        translated_text = TRANSLATION_CACHE[cache_key]
+    else:
+        translated_text = await translate_text(request.text, target_lang)
+        if translated_text:
+            TRANSLATION_CACHE[cache_key] = translated_text
+    
+    if not translated_text:
+        return {"status": "error", "message": "Translation failed"}
+
+    # 2. TTS Cache Check & Execute
+    if translated_text not in TTS_CACHE:
+        audio = await text_to_speech_multilingual(translated_text)
+        if audio:
+            TTS_CACHE[translated_text] = audio
+    
+    return {"status": "success", "translated_text": translated_text}
+
 @app.post("/call")
 async def call(request: CallRequest):
     if not SERVER_DOMAIN:
@@ -224,7 +255,15 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     async def prepare_greeting():
         final_text = greeting_text
         if user_greeting:
-            translated = await translate_text(user_greeting, target_lang)
+            # Check Translation Cache first
+            cache_key = (user_greeting, target_lang)
+            if cache_key in TRANSLATION_CACHE:
+                translated = TRANSLATION_CACHE[cache_key]
+            else:
+                translated = await translate_text(user_greeting, target_lang)
+                if translated:
+                    TRANSLATION_CACHE[cache_key] = translated
+            
             if translated:
                 final_text = translated
         

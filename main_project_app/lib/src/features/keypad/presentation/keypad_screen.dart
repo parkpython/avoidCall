@@ -31,6 +31,10 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   final TextEditingController _phoneController = TextEditingController();
 
   void _onNumberPressed(String number) {
+    // 보안: 입력 길이 제한 (최대 20자리). 비정상적으로 긴 입력 방지.
+    if (_phoneController.text.length >= 20) {
+      return;
+    }
     setState(() {
       _phoneController.text += number;
     });
@@ -48,10 +52,13 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   }
 
   String _formatNumberToE164(String number) {
-    if (number.startsWith('+')) {
-      return number;
-    }
+    // 보안: 입력값에서 숫자만 남기고 모두 제거 (화이트리스트 방식)
     String digitsOnly = number.replaceAll(RegExp(r'\D'), '');
+
+    if (number.startsWith('+')) {
+      // +로 시작하더라도 숫자만 포함되도록 강제하여 코드 삽입(Injection) 방지
+      return '+$digitsOnly';
+    }
     if (digitsOnly.startsWith('0')) {
       digitsOnly = digitsOnly.substring(1);
     }
@@ -120,105 +127,127 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('AI Mediation'),
-                Switch(
-                  value: _aiMediation,
-                  onChanged: (value) {
-                    setState(() {
-                      _aiMediation = value;
-                    });
-                  },
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 40.0,
-                vertical: 8.0,
-              ),
-              child: DropdownButtonFormField<String>(
-                value: _selectedCountryCode,
-                decoration: const InputDecoration(
-                  labelText: 'Country Code',
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                ),
-                items: _countryCodes.map((country) {
-                  return DropdownMenuItem<String>(
-                    value: country['code'],
-                    child: Text('${country['name']} (${country['code']})'),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() => _selectedCountryCode = value!);
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 작은 화면 대응을 위한 최소 높이 설정 (예: 600px)
+            const double minHeight = 600.0;
+            final bool isSmallScreen = constraints.maxHeight < minHeight;
 
-                  // 국가 선택 시 해당 언어로 자동 변경 (UX 개선)
-                  final langNotifier = ref.read(languageProvider.notifier);
-                  switch (value) {
-                    case '+31':
-                      langNotifier.setLanguage('Dutch');
-                      break;
-                    case '+81':
-                      langNotifier.setLanguage('Japanese');
-                      break;
-                    case '+1':
-                      langNotifier.setLanguage('English');
-                      break;
-                    case '+86':
-                      langNotifier.setLanguage('Chinese');
-                      break;
-                  }
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24.0,
-                vertical: 16.0,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _phoneController,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Enter number',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      readOnly: true,
+            return SingleChildScrollView(
+              physics: isSmallScreen
+                  ? const AlwaysScrollableScrollPhysics()
+                  : const NeverScrollableScrollPhysics(),
+              child: SizedBox(
+                height: isSmallScreen ? minHeight : constraints.maxHeight,
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('AI Mediation'),
+                        Switch(
+                          value: _aiMediation,
+                          onChanged: (value) {
+                            setState(() {
+                              _aiMediation = value;
+                            });
+                          },
+                        ),
+                      ],
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.backspace),
-                    onPressed: _onDeletePressed,
-                  ),
-                ],
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 40.0,
+                        vertical: 8.0,
+                      ),
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedCountryCode,
+                        decoration: const InputDecoration(
+                          labelText: 'Country Code',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        items: _countryCodes.map((country) {
+                          return DropdownMenuItem<String>(
+                            value: country['code'],
+                            child: Text(
+                              '${country['name']} (${country['code']})',
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() => _selectedCountryCode = value!);
+
+                          // 국가 선택 시 해당 언어로 자동 변경 (UX 개선)
+                          final langNotifier = ref.read(
+                            languageProvider.notifier,
+                          );
+                          switch (value) {
+                            case '+31':
+                              langNotifier.setLanguage('Dutch');
+                              break;
+                            case '+81':
+                              langNotifier.setLanguage('Japanese');
+                              break;
+                            case '+1':
+                              langNotifier.setLanguage('English');
+                              break;
+                            case '+86':
+                              langNotifier.setLanguage('Chinese');
+                              break;
+                          }
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24.0,
+                        vertical: 16.0,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                _phoneController.text.isEmpty
+                                    ? 'Enter number'
+                                    : _phoneController.text,
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.bold,
+                                  color: _phoneController.text.isEmpty
+                                      ? Colors.grey
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.backspace),
+                            onPressed: _onDeletePressed,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(child: _buildKeypad()),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: FloatingActionButton(
+                        onPressed:
+                            _makeCall, // Changed from navigation to function call
+                        child: const Icon(Icons.call),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(child: _buildKeypad()),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: FloatingActionButton(
-                onPressed:
-                    _makeCall, // Changed from navigation to function call
-                child: const Icon(Icons.call),
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
