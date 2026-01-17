@@ -4,6 +4,7 @@ import asyncio
 import base64
 import struct
 import uuid
+import time
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
@@ -16,6 +17,9 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 from openai import AsyncOpenAI
 
+# Supabase Client (기존 모듈 활용)
+from supabase_client import supabase
+
 load_dotenv()
 
 app = FastAPI()
@@ -27,6 +31,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+# Supabase 설정 확인 (디버깅용)
+if not os.getenv("SUPABASE_URL"):
+    print("Warning: SUPABASE_URL is missing.")
 
 # SERVER_DOMAIN 안전장치: https:// 제거
 if SERVER_DOMAIN:
@@ -104,6 +112,7 @@ async def text_to_speech_multilingual(text):
 
 # --- API Models ---
 class CallRequest(BaseModel):
+    user_id: str  # [추가] DB 기록용 사용자 ID (UUID)
     target_number: str
     language: str
     greeting_text: str = None  # 사용자가 설정한 인삿말 (옵션)
@@ -150,6 +159,9 @@ async def call(request: CallRequest):
     
     # Set up communication queues for this call
     active_calls[call_id] = {
+        "user_id": request.user_id,         # [추가]
+        "target_number": request.target_number, # [추가]
+        "start_time": time.time(),          # [추가] 통화 시작 시간
         "to_app_queue": asyncio.Queue(),
         "from_app_queue": asyncio.Queue(),
         "language": request.language,
@@ -157,7 +169,8 @@ async def call(request: CallRequest):
         "target_lang": lang_settings["target"],
         "stream_sid": None,
         "greeting_text": request.greeting_text,  # 인삿말 저장
-        "ai_mediation": request.ai_mediation     # AI 중재 여부 저장
+        "ai_mediation": request.ai_mediation,    # AI 중재 여부 저장
+        "twilio_call_sid": None                  # [추가] Twilio SID 저장 공간
     }
     
     try:
@@ -367,6 +380,27 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             await call_info["to_app_queue"].put("HANG_UP")
             await call_info["from_app_queue"].put("HANG_UP")
             
+            # --- [추가] 통화 종료 및 로그 저장 ---
+            try:
+                duration = int(time.time() - call_info["start_time"])
+                log_data = {
+                    "user_id": call_info["user_id"],
+                    "call_uuid": call_id,
+                    "twilio_sid": call_info.get("twilio_call_sid", ""),
+                    "target_number": call_info["target_number"],
+                    "duration_seconds": duration,
+                    "cost": 0.0 # 추후 Twilio API로 실제 비용 업데이트 가능
+                }
+                
+                # Supabase insert는 동기 함수이므로 executor에서 실행하여 이벤트 루프 차단 방지
+                await loop.run_in_executor(
+                    None, 
+                    lambda: supabase.table("call_logs").insert(log_data).execute()
+                )
+                print(f"✅ Call Log Saved: {duration}s for User {call_info['user_id']}")
+            except Exception as e:
+                print(f"❌ Failed to save call log: {e}")
+
             try:
                 deepgram_socket.finish()
             except:

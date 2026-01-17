@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class KeypadScreen extends ConsumerStatefulWidget {
   const KeypadScreen({super.key});
@@ -70,6 +71,13 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final greeting = ref.read(greetingProvider);
     final formattedNumber = _formatNumberToE164(_phoneController.text);
 
+    // 현재 로그인된 사용자 확인
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      _showFeedback('로그인이 필요합니다.', isError: true);
+      return;
+    }
+
     _showFeedback('Initiating AI-mediated call in $language...');
 
     try {
@@ -82,6 +90,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
         Uri.parse('$url/call'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
+          'user_id': user.id, // [추가] 백엔드 요구사항: 사용자 ID 전송
           'target_number': formattedNumber,
           'language': language,
           'greeting_text': greeting,
