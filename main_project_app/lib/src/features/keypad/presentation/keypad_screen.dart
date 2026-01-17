@@ -75,6 +75,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       _showFeedback('로그인이 필요합니다.', isError: true);
+      context.push('/login'); // 로그인 화면으로 이동
       return;
     }
 
@@ -130,6 +131,12 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
         backgroundColor: isError ? Colors.red : Colors.green,
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
   }
 
   @override

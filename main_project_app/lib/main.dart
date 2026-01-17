@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:main_project_app/src/app.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   // 플러터 엔진을 먼저 초기화해야 assets 로드가 가능합니다.
@@ -11,5 +12,11 @@ Future<void> main() async {
   } catch (e) {
     debugPrint("Failed to load .env file: $e");
   }
+
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL'] ?? '',
+    anonKey: dotenv.env['SUPABASE_KEY'] ?? '',
+  );
+
   runApp(const ProviderScope(child: MyApp()));
 }

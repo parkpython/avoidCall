@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -77,6 +78,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               // 입력할 때마다 바로 저장 (간단한 구현)
               ref.read(greetingProvider.notifier).setGreeting(value);
             },
+          ),
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () async {
+              await Supabase.instance.client.auth.signOut();
+            },
+            icon: const Icon(Icons.logout),
+            label: const Text('Sign Out'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade50,
+              foregroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
           ),
         ],
       ),

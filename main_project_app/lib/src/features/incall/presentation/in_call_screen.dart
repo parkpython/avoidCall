@@ -146,6 +146,7 @@ class _InCallScreenState extends State<InCallScreen> {
 
   @override
   void dispose() {
+    _textController.dispose();
     _channel?.sink.close();
     super.dispose();
   }
