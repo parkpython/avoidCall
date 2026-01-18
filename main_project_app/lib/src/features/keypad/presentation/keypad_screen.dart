@@ -69,6 +69,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   Future<void> _makeCall() async {
     final language = ref.read(languageProvider);
     final greeting = ref.read(greetingProvider);
+    final voice = ref.read(voiceProvider);
     final formattedNumber = _formatNumberToE164(_phoneController.text);
 
     // 현재 로그인된 사용자 확인
@@ -96,6 +97,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
           'language': language,
           'greeting_text': greeting,
           'ai_mediation': _aiMediation,
+          'voice_preset': voice,
         }),
       );
 

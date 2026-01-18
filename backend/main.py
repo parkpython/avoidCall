@@ -99,10 +99,10 @@ async def translate_text(text, target_lang):
     except Exception as e:
         print(f"Translation Error: {e}"); return None
 
-async def text_to_speech_multilingual(text):
+async def text_to_speech_multilingual(text, voice="alloy"):
     try:
         response = await openai_client.audio.speech.create(
-            model="tts-1", voice="alloy", input=text, response_format="pcm"
+            model="tts-1", voice=voice, input=text, response_format="pcm"
         )
         pcm_24k = response.content
         pcm_8k = b"".join(pcm_24k[i:i+2] for i in range(0, len(pcm_24k), 6) if i + 2 <= len(pcm_24k))
@@ -117,10 +117,12 @@ class CallRequest(BaseModel):
     language: str
     greeting_text: str = None  # 사용자가 설정한 인삿말 (옵션)
     ai_mediation: bool = True  # AI 번역 사용 여부 (기본값 True)
+    voice_preset: str = "alloy" # [추가] TTS 목소리 선택 (alloy, echo, fable, onyx, nova, shimmer)
 
 class PrefetchRequest(BaseModel):
     text: str
     language: str
+    voice_preset: str = "alloy"
 
 # --- API Endpoints ---
 @app.post("/prefetch")
@@ -142,10 +144,11 @@ async def prefetch(request: PrefetchRequest):
         return {"status": "error", "message": "Translation failed"}
 
     # 2. TTS Cache Check & Execute
-    if translated_text not in TTS_CACHE:
-        audio = await text_to_speech_multilingual(translated_text)
+    voice = request.voice_preset
+    if (translated_text, voice) not in TTS_CACHE:
+        audio = await text_to_speech_multilingual(translated_text, voice)
         if audio:
-            TTS_CACHE[translated_text] = audio
+            TTS_CACHE[(translated_text, voice)] = audio
     
     return {"status": "success", "translated_text": translated_text}
 
@@ -170,6 +173,7 @@ async def call(request: CallRequest):
         "stream_sid": None,
         "greeting_text": request.greeting_text,  # 인삿말 저장
         "ai_mediation": request.ai_mediation,    # AI 중재 여부 저장
+        "voice_preset": request.voice_preset,    # [추가] 목소리 설정 저장
         "twilio_call_sid": None                  # [추가] Twilio SID 저장 공간
     }
     
@@ -258,6 +262,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     await call_info["to_app_queue"].put({"type": "call_connected"})
     stt_lang = call_info["stt_lang"]
     target_lang = call_info["target_lang"]
+    voice_preset = call_info.get("voice_preset", "alloy")
     loop = asyncio.get_running_loop()
 
     # --- [Optimization 1] Prefetch Greeting TTS ---
@@ -281,12 +286,12 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                 final_text = translated
         
         # Check Cache first (메모리에 저장된 오디오가 있으면 즉시 반환)
-        if final_text in TTS_CACHE:
-            return final_text, TTS_CACHE[final_text]
+        if (final_text, voice_preset) in TTS_CACHE:
+            return final_text, TTS_CACHE[(final_text, voice_preset)]
         
-        audio = await text_to_speech_multilingual(final_text)
+        audio = await text_to_speech_multilingual(final_text, voice_preset)
         if audio:
-            TTS_CACHE[final_text] = audio
+            TTS_CACHE[(final_text, voice_preset)] = audio
         return final_text, audio
 
     greeting_task = asyncio.create_task(prepare_greeting())
@@ -432,7 +437,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         "original": user_text,
                         "translated": translated_text
                     })
-                    audio_bytes = await text_to_speech_multilingual(translated_text)
+                    audio_bytes = await text_to_speech_multilingual(translated_text, voice_preset)
                     if audio_bytes and call_info["stream_sid"]:
                         payload = base64.b64encode(audio_bytes).decode('utf-8')
                         await websocket.send_json({

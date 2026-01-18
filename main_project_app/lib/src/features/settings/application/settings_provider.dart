@@ -60,12 +60,67 @@ final languageProvider = NotifierProvider<LanguageNotifier, String>(() {
   return LanguageNotifier();
 });
 
+/// 2.5. A Notifier class that holds and manages the TTS Voice.
+class VoiceNotifier extends Notifier<String> {
+  @override
+  String build() {
+    _loadVoice();
+    return 'alloy'; // Default voice
+  }
+
+  Future<void> _loadVoice() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('user_settings')
+          .select('voice_preset')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      if (data != null && data['voice_preset'] != null) {
+        state = data['voice_preset'] as String;
+      }
+    } catch (e) {
+      print('Error loading voice: $e');
+    }
+  }
+
+  Future<void> setVoice(String newVoice) async {
+    state = newVoice;
+    await _saveSetting('voice_preset', newVoice);
+  }
+
+  Future<void> _saveSetting(String key, String value) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      try {
+        await Supabase.instance.client.from('user_settings').upsert({
+          'user_id': user.id,
+          key: value,
+        });
+      } catch (e) {
+        print('Error saving voice setting: $e');
+      }
+    }
+  }
+}
+
+final voiceProvider = NotifierProvider<VoiceNotifier, String>(() {
+  return VoiceNotifier();
+});
+
 /// 3. A Notifier class that holds and manages the greeting message.
 class GreetingNotifier extends Notifier<String> {
   @override
   String build() {
     // 언어가 변경되면 현재 인삿말에 대해 다시 프리패치 요청
     ref.listen(languageProvider, (previous, next) {
+      prefetch(state);
+    });
+    // 목소리가 변경되면 현재 인삿말에 대해 다시 프리패치 요청
+    ref.listen(voiceProvider, (previous, next) {
       prefetch(state);
     });
 
@@ -120,6 +175,7 @@ class GreetingNotifier extends Notifier<String> {
 
   Future<void> prefetch(String text) async {
     final language = ref.read(languageProvider);
+    final voice = ref.read(voiceProvider);
     final backendUrl = dotenv.env['API_URL'] ?? '';
     if (backendUrl.isEmpty) return;
 
@@ -132,7 +188,11 @@ class GreetingNotifier extends Notifier<String> {
       await http.post(
         Uri.parse('$url/prefetch'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'text': text, 'language': language}),
+        body: jsonEncode({
+          'text': text,
+          'language': language,
+          'voice_preset': voice,
+        }),
       );
     } catch (e) {
       // 프리패치 실패는 사용자에게 알리지 않고 조용히 넘어감 (로그만 출력)

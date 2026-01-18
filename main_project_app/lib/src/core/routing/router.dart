@@ -7,19 +7,21 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Screens
 import 'package:main_project_app/src/core/routing/scaffold_with_nav_bar.dart';
+import 'package:main_project_app/src/features/incall/presentation/auth_provider.dart';
 import 'package:main_project_app/src/features/auth/presentation/login_screen.dart';
 import 'package:main_project_app/src/features/incall/presentation/in_call_screen.dart';
 import 'package:main_project_app/src/features/keypad/presentation/keypad_screen.dart';
 import 'package:main_project_app/src/features/settings/presentation/settings_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  // authStateProvider의 스트림을 구독하여 인증 상태가 바뀔 때마다 라우터에 알림
+  final authStream = Supabase.instance.client.auth.onAuthStateChange;
+
   return GoRouter(
     initialLocation: '/',
     debugLogDiagnostics: true,
     // Supabase 인증 상태(로그인/로그아웃)가 변할 때마다 라우트 갱신
-    refreshListenable: GoRouterRefreshStream(
-      Supabase.instance.client.auth.onAuthStateChange,
-    ),
+    refreshListenable: GoRouterRefreshStream(authStream),
 
     // 화면 이동 시마다 실행되는 리다이렉트 로직
     redirect: (context, state) {

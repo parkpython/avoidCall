@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:main_project_app/src/features/incall/presentation/auth_provider.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -30,12 +31,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final currentLanguage = ref.watch(languageProvider);
+    final currentVoice = ref.watch(voiceProvider);
+    final user = ref.watch(userProvider); // 현재 로그인한 사용자 정보 가져오기
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          if (user != null && user.email != null) ...[
+            const Text(
+              'Account',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.email),
+              title: Text(user.email!),
+              contentPadding: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 24),
+          ],
           const Text(
             'Target Language',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -53,6 +69,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (value) {
               if (value != null) {
                 ref.read(languageProvider.notifier).setLanguage(value);
+              }
+            },
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'AI Voice',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: currentVoice,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            items: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+                .map(
+                  (voice) => DropdownMenuItem(
+                    value: voice,
+                    child: Text(voice.toUpperCase()),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                ref.read(voiceProvider.notifier).setVoice(value);
               }
             },
           ),
