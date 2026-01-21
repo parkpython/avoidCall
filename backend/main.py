@@ -112,7 +112,7 @@ async def text_to_speech_multilingual(text, voice="alloy"):
 
 # --- API Models ---
 class CallRequest(BaseModel):
-    user_id: str  # [추가] DB 기록용 사용자 ID (UUID)
+    user_id: str  # [수정] 사용자 식별 ID (Device ID 또는 User ID)
     target_number: str
     language: str
     greeting_text: str = None  # 사용자가 설정한 인삿말 (옵션)
@@ -160,10 +160,14 @@ async def call(request: CallRequest):
     call_id = str(uuid.uuid4())
     lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
     
+    # [TODO] 결제 시스템 연동 포인트
+    # request.user_id(Device ID)를 조회하여 남은 통화 시간이 있는지 확인하는 로직이 이곳에 들어갑니다.
+    # if get_user_balance(request.user_id) <= 0: return {"status": "error", "message": "Insufficient balance"}
+
     # Set up communication queues for this call
     active_calls[call_id] = {
-        "user_id": request.user_id,         # [추가]
-        "target_number": request.target_number, # [추가]
+        "user_id": request.user_id,         # Device ID 저장
+        "target_number": request.target_number,
         "start_time": time.time(),          # [추가] 통화 시작 시간
         "to_app_queue": asyncio.Queue(),
         "from_app_queue": asyncio.Queue(),
@@ -394,7 +398,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     "twilio_sid": call_info.get("twilio_call_sid", ""),
                     "target_number": call_info["target_number"],
                     "duration_seconds": duration,
-                    "cost": 0.0 # 추후 Twilio API로 실제 비용 업데이트 가능
+                    "cost": 0.0 # [TODO] 10분당 1000원 등 과금 로직 적용 가능
                 }
                 
                 # Supabase insert는 동기 함수이므로 executor에서 실행하여 이벤트 루프 차단 방지

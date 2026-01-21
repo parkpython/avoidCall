@@ -70,15 +70,8 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final language = ref.read(languageProvider);
     final greeting = ref.read(greetingProvider);
     final voice = ref.read(voiceProvider);
+    final deviceId = ref.read(deviceIdProvider); // 로컬 디바이스 ID 사용
     final formattedNumber = _formatNumberToE164(_phoneController.text);
-
-    // 현재 로그인된 사용자 확인
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      _showFeedback('로그인이 필요합니다.', isError: true);
-      context.push('/login'); // 로그인 화면으로 이동
-      return;
-    }
 
     _showFeedback('Initiating AI-mediated call in $language...');
 
@@ -92,7 +85,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
         Uri.parse('$url/call'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'user_id': user.id, // [추가] 백엔드 요구사항: 사용자 ID 전송
+          'user_id': deviceId, // [수정] 로컬 디바이스 ID 전송
           'target_number': formattedNumber,
           'language': language,
           'greeting_text': greeting,
