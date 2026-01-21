@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 // Using a shared Message model would be ideal, but for simplicity,
@@ -35,14 +36,86 @@ class _InCallScreenState extends State<InCallScreen> {
   // -----------------------------------------
 
   final TextEditingController _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final List<Message> _messages = [];
   WebSocketChannel? _channel;
   bool _isCallConnected = false; // 통화 연결 상태 확인용 변수
+
+  // --- Suggestions State ---
+  List<String> _serverSuggestions = [];
+  final List<String> _defaultSuggestions = [
+    '네, 알겠습니다.',
+    '잠시만 기다려주세요.',
+    '잘 못 들었습니다.',
+    '감사합니다.',
+    '아니요, 괜찮습니다.',
+  ];
+
+  // --- Hangul Chosung Logic ---
+  final List<String> _chosungList = [
+    'ㄱ',
+    'ㄲ',
+    'ㄴ',
+    'ㄷ',
+    'ㄸ',
+    'ㄹ',
+    'ㅁ',
+    'ㅂ',
+    'ㅃ',
+    'ㅅ',
+    'ㅆ',
+    'ㅇ',
+    'ㅈ',
+    'ㅉ',
+    'ㅊ',
+    'ㅋ',
+    'ㅌ',
+    'ㅍ',
+    'ㅎ',
+  ];
+
+  String _extractChosung(String text) {
+    String result = '';
+    for (int i = 0; i < text.length; i++) {
+      int code = text.codeUnitAt(i);
+      // 한글 유니코드 범위: 0xAC00 ~ 0xD7A3
+      if (code >= 0xAC00 && code <= 0xD7A3) {
+        int chosungIndex = ((code - 0xAC00) ~/ 28) ~/ 21;
+        result += _chosungList[chosungIndex];
+      } else {
+        result += text[i];
+      }
+    }
+    return result;
+  }
+
+  List<String> _getSuggestions(String query) {
+    final allSuggestions = {
+      ..._serverSuggestions,
+      ..._defaultSuggestions,
+    }.toList();
+    if (query.isEmpty) return [];
+    return allSuggestions
+        .where((s) => s.contains(query) || _extractChosung(s).contains(query))
+        .toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _connectWebSocket();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   // --- WebSocket Logic ---
@@ -90,6 +163,12 @@ class _InCallScreenState extends State<InCallScreen> {
                   isFromUser: false,
                 ),
               );
+              _scrollToBottom();
+            } else if (data['type'] == 'suggestions_update') {
+              // [UX 최적화] 추천 답변이 도착하면 리스트 갱신
+              if (data['suggestions'] != null) {
+                _serverSuggestions = List<String>.from(data['suggestions']);
+              }
             } else if (data['type'] == 'user_text') {
               final lastMsgIndex = _messages.lastIndexWhere(
                 (m) => m.isFromUser && m.original == data['original'],
@@ -147,6 +226,7 @@ class _InCallScreenState extends State<InCallScreen> {
   @override
   void dispose() {
     _textController.dispose();
+    _scrollController.dispose();
     _channel?.sink.close();
     super.dispose();
   }
@@ -159,6 +239,7 @@ class _InCallScreenState extends State<InCallScreen> {
       _messages.add(
         Message(original: text, translated: '(Sending...)', isFromUser: true),
       );
+      _scrollToBottom();
     });
 
     final message = jsonEncode({'event': 'frontend_text', 'text': text});
@@ -194,6 +275,7 @@ class _InCallScreenState extends State<InCallScreen> {
               children: [
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final message = _messages[index];
@@ -253,12 +335,25 @@ class _InCallScreenState extends State<InCallScreen> {
         child: Row(
           children: [
             Flexible(
-              child: TextField(
+              child: TypeAheadField<String>(
                 controller: _textController,
-                onSubmitted: _handleSubmitted,
-                decoration: const InputDecoration.collapsed(
-                  hintText: 'Send a message',
-                ),
+                builder: (context, controller, focusNode) {
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    onSubmitted: _handleSubmitted,
+                    decoration: const InputDecoration.collapsed(
+                      hintText: 'Send a message',
+                    ),
+                  );
+                },
+                suggestionsCallback: _getSuggestions,
+                itemBuilder: (context, suggestion) {
+                  return ListTile(title: Text(suggestion));
+                },
+                onSelected: (suggestion) => _handleSubmitted(suggestion),
+                direction: AxisDirection.up, // 추천 목록을 위로 띄움
+                hideOnEmpty: true,
               ),
             ),
             Container(

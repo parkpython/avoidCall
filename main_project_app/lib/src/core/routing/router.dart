@@ -3,12 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Screens
 import 'package:main_project_app/src/core/routing/scaffold_with_nav_bar.dart';
-import 'package:main_project_app/src/features/incall/presentation/auth_provider.dart';
-import 'package:main_project_app/src/features/auth/presentation/login_screen.dart';
 import 'package:main_project_app/src/features/incall/presentation/in_call_screen.dart';
 import 'package:main_project_app/src/features/keypad/presentation/keypad_screen.dart';
 import 'package:main_project_app/src/features/settings/presentation/settings_screen.dart';
@@ -44,7 +41,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/in-call-session',
         builder: (context, state) {

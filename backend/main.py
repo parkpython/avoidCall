@@ -110,6 +110,25 @@ async def text_to_speech_multilingual(text, voice="alloy"):
     except Exception as e:
         print(f"TTS Error: {e}"); return None
 
+async def generate_reply_suggestions(text):
+    """GPT-4o-mini를 사용하여 짧은 한국어 답변 3개를 생성합니다."""
+    if not text: return []
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Analyze the input and provide 3 short, natural Korean reply suggestions. Output JSON object with key 'suggestions' containing a list of strings."},
+                {"role": "user", "content": text}
+            ],
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        return data.get("suggestions", [])
+    except Exception as e:
+        print(f"Suggestion Error: {e}")
+        return []
+
 # --- API Models ---
 class CallRequest(BaseModel):
     user_id: str  # [수정] 사용자 식별 ID (Device ID 또는 User ID)
@@ -317,11 +336,20 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     else:
                         korean_translation = transcript # 번역 없이 원문 그대로 전송
                     if korean_translation:
+                        # 1. [UX 최적화] 번역문 즉시 전송 (지연 시간 제거)
                         await call_info["to_app_queue"].put({
                             "type": "translation",
                             "original": transcript,
                             "translated": korean_translation,
                         })
+                        
+                        # 2. 추천 답변은 비동기로 생성 후 별도 전송
+                        suggestions = await generate_reply_suggestions(korean_translation)
+                        if suggestions:
+                            await call_info["to_app_queue"].put({
+                                "type": "suggestions_update",
+                                "suggestions": suggestions
+                            })
             
             def on_deepgram_transcript_sync(self, result, **kwargs):
                 transcript = result.channel.alternatives[0].transcript
