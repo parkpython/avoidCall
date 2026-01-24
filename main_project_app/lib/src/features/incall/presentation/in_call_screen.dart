@@ -95,9 +95,16 @@ class _InCallScreenState extends State<InCallScreen> {
       ..._defaultSuggestions,
     }.toList();
     if (query.isEmpty) return [];
-    return allSuggestions
-        .where((s) => s.contains(query) || _extractChosung(s).contains(query))
-        .toList();
+
+    // [한글 최적화] 대소문자 변환 대신, 공백과 특수문자를 제거하여 검색 정확도 향상
+    // 예: '네알' 또는 'ㄴㅇ' 입력 -> '네, 알겠습니다.' 검색됨
+    final cleanQuery = query.replaceAll(RegExp(r'[\s,.\?!]'), '');
+
+    return allSuggestions.where((s) {
+      final cleanSuggestion = s.replaceAll(RegExp(r'[\s,.\?!]'), '');
+      return cleanSuggestion.contains(cleanQuery) ||
+          _extractChosung(cleanSuggestion).contains(cleanQuery);
+    }).toList();
   }
 
   @override
@@ -352,7 +359,7 @@ class _InCallScreenState extends State<InCallScreen> {
                   return ListTile(title: Text(suggestion));
                 },
                 onSelected: (suggestion) => _handleSubmitted(suggestion),
-                direction: AxisDirection.up, // 추천 목록을 위로 띄움
+                direction: VerticalDirection.up, // 추천 목록을 위로 띄움
                 hideOnEmpty: true,
               ),
             ),

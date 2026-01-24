@@ -31,6 +31,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Supabase 설정 확인 (디버깅용)
 if not os.getenv("SUPABASE_URL"):
@@ -42,6 +43,11 @@ if SERVER_DOMAIN:
 
 deepgram_client = DeepgramClient(DEEPGRAM_API_KEY)
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+# [Groq] 번역 및 텍스트 생성을 위한 Groq 클라이언트 설정 (OpenAI 호환)
+groq_client = AsyncOpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
 twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 LANGUAGE_MAP = {
@@ -88,8 +94,9 @@ def convert_pcm_to_mulaw(pcm_bytes):
 async def translate_text(text, target_lang):
     if not text or len(text.strip()) < 1: return None
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        # [Groq] 번역 모델 변경 (gpt-4o-mini -> llama3-8b-8192)
+        response = await groq_client.chat.completions.create(
+            model="llama3-8b-8192",
             messages=[
                 {"role": "system", "content": f"You are a translator. Translate the input to {target_lang}. If the input contains typos, infer the intended meaning. Output ONLY the translated text. Do not provide explanations."},
                 {"role": "user", "content": text}
@@ -114,8 +121,9 @@ async def generate_reply_suggestions(text):
     """GPT-4o-mini를 사용하여 짧은 한국어 답변 3개를 생성합니다."""
     if not text: return []
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        # [Groq] 추천 답변 모델 변경 (gpt-4o-mini -> llama3-8b-8192)
+        response = await groq_client.chat.completions.create(
+            model="llama3-8b-8192",
             messages=[
                 {"role": "system", "content": "Analyze the input and provide 3 short, natural Korean reply suggestions. Output JSON object with key 'suggestions' containing a list of strings."},
                 {"role": "user", "content": text}
