@@ -98,11 +98,13 @@ async def translate_text(text, target_lang):
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": f"You are a translator. Translate the input to {target_lang}. If the input contains typos, infer the intended meaning. Output ONLY the translated text. Do not provide explanations."},
+                {"role": "system", "content": f"You are a professional interpreter. Translate the following text into {target_lang}. Output ONLY the translated text. Do not include any explanations or notes."},
                 {"role": "user", "content": text}
-            ], max_tokens=100
+            ],
+            max_tokens=256,
+            temperature=0.1
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Translation Error: {e}"); return None
 
@@ -128,7 +130,8 @@ async def generate_reply_suggestions(text):
                 {"role": "system", "content": "Analyze the input and provide 3 short, natural Korean reply suggestions. Output JSON object with key 'suggestions' containing a list of strings."},
                 {"role": "user", "content": text}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.3
         )
         content = response.choices[0].message.content
         data = json.loads(content)
