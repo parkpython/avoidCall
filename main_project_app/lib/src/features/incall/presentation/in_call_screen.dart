@@ -358,9 +358,20 @@ class _InCallScreenState extends State<InCallScreen> {
                 itemBuilder: (context, suggestion) {
                   return ListTile(title: Text(suggestion));
                 },
+                decorationBuilder: (context, child) {
+                  return Material(
+                    type: MaterialType.card,
+                    elevation: 4, // 그림자를 주어 배경과 구분
+                    borderRadius: BorderRadius.circular(8),
+                    child: child,
+                  );
+                },
                 onSelected: (suggestion) => _handleSubmitted(suggestion),
                 direction: VerticalDirection.up, // 추천 목록을 위로 띄움
                 hideOnEmpty: true,
+                constraints: const BoxConstraints(maxHeight: 200), // 목록 높이 제한
+                // 입력창과 추천 목록 사이의 간격 (위로 12픽셀 띄움)
+                offset: const Offset(0, 12),
               ),
             ),
             Container(
