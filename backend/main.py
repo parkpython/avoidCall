@@ -96,7 +96,7 @@ async def translate_text(text, target_lang):
     try:
         # [Groq] 번역 모델 변경 (gpt-4o-mini -> llama3-8b-8192)
         response = await groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": f"You are a translator. Translate the input to {target_lang}. If the input contains typos, infer the intended meaning. Output ONLY the translated text. Do not provide explanations."},
                 {"role": "user", "content": text}
@@ -123,7 +123,7 @@ async def generate_reply_suggestions(text):
     try:
         # [Groq] 추천 답변 모델 변경 (gpt-4o-mini -> llama3-8b-8192)
         response = await groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": "Analyze the input and provide 3 short, natural Korean reply suggestions. Output JSON object with key 'suggestions' containing a list of strings."},
                 {"role": "user", "content": text}
