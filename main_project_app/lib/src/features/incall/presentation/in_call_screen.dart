@@ -44,11 +44,14 @@ class _InCallScreenState extends State<InCallScreen> {
   // --- Suggestions State ---
   List<String> _serverSuggestions = [];
   final List<String> _defaultSuggestions = [
+    '안녕하세요, 예약하려고 하는데요.',
+    '오늘 저녁 7시에 2명 예약 가능한가요?',
+    '혹시 주차 가능한가요?',
+    '영업 시간이 어떻게 되나요?',
     '네, 알겠습니다.',
     '잠시만 기다려주세요.',
     '잘 못 들었습니다.',
     '감사합니다.',
-    '아니요, 괜찮습니다.',
   ];
 
   // --- Hangul Chosung Logic ---
@@ -94,7 +97,10 @@ class _InCallScreenState extends State<InCallScreen> {
       ..._serverSuggestions,
       ..._defaultSuggestions,
     }.toList();
-    if (query.isEmpty) return [];
+
+    // [UX 개선] 검색어가 없어도 기본 상용구를 즉시 보여줍니다.
+    // 사용자가 입력창을 터치하자마자 예약 관련 문구를 선택할 수 있습니다.
+    if (query.isEmpty) return allSuggestions;
 
     // [한글 최적화] 대소문자 변환 대신, 공백과 특수문자를 제거하여 검색 정확도 향상
     // 예: '네알' 또는 'ㄴㅇ' 입력 -> '네, 알겠습니다.' 검색됨
@@ -110,7 +116,22 @@ class _InCallScreenState extends State<InCallScreen> {
   @override
   void initState() {
     super.initState();
-    _connectWebSocket();
+    if (widget.callId == 'test_mode') {
+      // [테스트 모드] 웹소켓 연결 없이 UI 초기화
+      setState(() {
+        _isCallConnected = true;
+        _messages.add(
+          Message(
+            original: 'System',
+            translated: '테스트 모드입니다. (서버 연결 없음)',
+            isFromUser: false,
+          ),
+        );
+        _serverSuggestions = ['테스트 답변 1', '테스트 답변 2', '네, 알겠습니다.'];
+      });
+    } else {
+      _connectWebSocket();
+    }
   }
 
   void _scrollToBottom() {
@@ -239,7 +260,9 @@ class _InCallScreenState extends State<InCallScreen> {
   }
 
   void _handleSubmitted(String text) {
-    if (text.isEmpty || _channel == null) return;
+    if (text.isEmpty) return;
+    // 테스트 모드가 아닐 때만 채널 연결 확인
+    if (widget.callId != 'test_mode' && _channel == null) return;
     _textController.clear();
 
     setState(() {
@@ -248,6 +271,37 @@ class _InCallScreenState extends State<InCallScreen> {
       );
       _scrollToBottom();
     });
+
+    // [테스트 모드] 가짜 응답 시뮬레이션
+    if (widget.callId == 'test_mode') {
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() {
+            // 1. 내 메시지 번역 완료 처리
+            final lastMsgIndex = _messages.lastIndexWhere(
+              (m) => m.isFromUser && m.original == text,
+            );
+            if (lastMsgIndex != -1) {
+              _messages[lastMsgIndex] = Message(
+                original: text,
+                translated: '$text (번역됨)',
+                isFromUser: true,
+              );
+            }
+            // 2. 상대방 가짜 응답 추가
+            _messages.add(
+              Message(
+                original: 'Echo: $text',
+                translated: '에코: $text',
+                isFromUser: false,
+              ),
+            );
+            _scrollToBottom();
+          });
+        }
+      });
+      return;
+    }
 
     final message = jsonEncode({'event': 'frontend_text', 'text': text});
     debugPrint('>>> WebSocket Sending: $message');
@@ -366,7 +420,12 @@ class _InCallScreenState extends State<InCallScreen> {
                     child: child,
                   );
                 },
-                onSelected: (suggestion) => _handleSubmitted(suggestion),
+                onSelected: (suggestion) {
+                  _textController.text = suggestion;
+                  _textController.selection = TextSelection.collapsed(
+                    offset: suggestion.length,
+                  );
+                },
                 direction: VerticalDirection.up, // 추천 목록을 위로 띄움
                 hideOnEmpty: true,
                 constraints: const BoxConstraints(maxHeight: 200), // 목록 높이 제한

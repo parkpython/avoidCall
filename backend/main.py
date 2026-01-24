@@ -190,6 +190,50 @@ async def call(request: CallRequest):
     call_id = str(uuid.uuid4())
     lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
     
+    # [TEST MODE START] --------------------------------------------------------
+    if request.target_number == "TEST":
+        print(f"🧪 [Simulation] Test Call Started: {call_id}")
+        
+        # 테스트용 세션 초기화 (Twilio 관련 필드는 더미 값 혹은 None)
+        active_calls[call_id] = {
+            "user_id": request.user_id,
+            "target_number": request.target_number,
+            "start_time": time.time(),
+            "to_app_queue": asyncio.Queue(),
+            "from_app_queue": asyncio.Queue(),
+            "language": request.language,
+            "stt_lang": lang_settings["stt"],
+            "target_lang": lang_settings["target"],
+            "stream_sid": "TEST_STREAM",
+            "greeting_text": request.greeting_text,
+            "ai_mediation": request.ai_mediation,
+            "voice_preset": request.voice_preset,
+            "twilio_call_sid": "TEST_SID"
+        }
+
+        # 가상의 상대방(Simulated Partner)을 백그라운드에서 실행
+        async def simulate_partner():
+            await asyncio.sleep(2) # 앱이 웹소켓에 연결될 때까지 잠시 대기
+            
+            # 1. 앱에 "통화 연결됨" 알림
+            await active_calls[call_id]["to_app_queue"].put({"type": "call_connected"})
+            
+            await asyncio.sleep(1)
+            # 2. 가짜 상대방의 첫 인사 (AI 번역 테스트용)
+            fake_greeting = "Hello, I want to make a reservation for tonight."
+            translated_greeting = await translate_text(fake_greeting, "Korean")
+            
+            # 앱으로 전송 (상대방 말인 것처럼)
+            await active_calls[call_id]["to_app_queue"].put({
+                "type": "translation",
+                "original": fake_greeting,
+                "translated": translated_greeting
+            })
+
+        asyncio.create_task(simulate_partner())
+        return {"status": "success", "call_id": call_id}
+    # [TEST MODE END] ----------------------------------------------------------
+
     # [TODO] 결제 시스템 연동 포인트
     # request.user_id(Device ID)를 조회하여 남은 통화 시간이 있는지 확인하는 로직이 이곳에 들어갑니다.
     # if get_user_balance(request.user_id) <= 0: return {"status": "error", "message": "Insufficient balance"}

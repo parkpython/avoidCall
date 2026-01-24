@@ -119,6 +119,52 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     }
   }
 
+  // [테스트 모드] 백엔드 시뮬레이션 호출
+  Future<void> _makeTestCall() async {
+    final language = ref.read(languageProvider);
+    final deviceId = ref.read(deviceIdProvider);
+
+    _showFeedback('Starting Backend Simulation...');
+
+    try {
+      var url = _backendUrl;
+      if (!url.startsWith('http')) {
+        url = 'https://$url';
+      }
+
+      final response = await http.post(
+        Uri.parse('$url/call'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': deviceId,
+          'target_number': 'TEST', // 백엔드에서 테스트 모드로 인식
+          'language': language,
+          'greeting_text': '',
+          'ai_mediation': true,
+          'voice_preset': 'alloy',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['status'] == 'success') {
+          final callId = body['call_id'];
+          // 실제 통화 세션 화면으로 이동 (call_id를 가지고 웹소켓 연결 시도)
+          if (mounted) {
+            context.push(
+              '/in-call-session',
+              extra: {'call_id': callId, 'language': language},
+            );
+          }
+        } else {
+          _showFeedback('Test failed: ${body['message']}', isError: true);
+        }
+      }
+    } catch (e) {
+      _showFeedback('Connection error: $e', isError: true);
+    }
+  }
+
   void _showFeedback(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -253,6 +299,12 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
                             _makeCall, // Changed from navigation to function call
                         child: const Icon(Icons.call),
                       ),
+                    ),
+                    // [테스트용] 서버 연결 없이 UI 테스트 진입 버튼
+                    TextButton.icon(
+                      onPressed: _makeTestCall, // 백엔드 시뮬레이션 연결
+                      icon: const Icon(Icons.bug_report),
+                      label: const Text('Backend Test Call'),
                     ),
                   ],
                 ),
