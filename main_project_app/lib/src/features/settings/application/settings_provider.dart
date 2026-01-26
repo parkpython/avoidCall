@@ -158,3 +158,36 @@ class GreetingNotifier extends Notifier<String> {
 final greetingProvider = NotifierProvider<GreetingNotifier, String>(() {
   return GreetingNotifier();
 });
+
+/// 5. 자주 쓰는 문구(Custom Phrases) 관리
+class CustomPhrasesNotifier extends Notifier<List<String>> {
+  @override
+  List<String> build() {
+    _loadPhrases();
+    return [];
+  }
+
+  Future<void> _loadPhrases() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? saved = prefs.getStringList('custom_phrases');
+    if (saved != null) state = saved;
+  }
+
+  Future<void> addPhrase(String phrase) async {
+    if (state.contains(phrase)) return;
+    state = [...state, phrase];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('custom_phrases', state);
+  }
+
+  Future<void> removePhrase(String phrase) async {
+    state = state.where((p) => p != phrase).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('custom_phrases', state);
+  }
+}
+
+final customPhrasesProvider =
+    NotifierProvider<CustomPhrasesNotifier, List<String>>(() {
+      return CustomPhrasesNotifier();
+    });

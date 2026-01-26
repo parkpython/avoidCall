@@ -229,6 +229,14 @@ async def call(request: CallRequest):
                 "original": fake_greeting,
                 "translated": translated_greeting
             })
+            
+            # [추가] 테스트 모드에서도 AI 추천 답변 생성 확인
+            suggestions = await generate_reply_suggestions(translated_greeting)
+            if suggestions:
+                await active_calls[call_id]["to_app_queue"].put({
+                    "type": "suggestions_update",
+                    "suggestions": suggestions
+                })
 
         asyncio.create_task(simulate_partner())
         return {"status": "success", "call_id": call_id}

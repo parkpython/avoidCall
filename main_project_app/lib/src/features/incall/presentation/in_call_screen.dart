@@ -2,8 +2,9 @@ import 'dart:async'; // <--- 이 줄을 추가하세요
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 // Using a shared Message model would be ideal, but for simplicity,
@@ -20,26 +21,29 @@ class Message {
   });
 }
 
-class InCallScreen extends StatefulWidget {
+class InCallScreen extends ConsumerStatefulWidget {
   final String callId;
   final String language;
 
   const InCallScreen({super.key, required this.callId, required this.language});
 
   @override
-  State<InCallScreen> createState() => _InCallScreenState();
+  ConsumerState<InCallScreen> createState() => _InCallScreenState();
 }
 
-class _InCallScreenState extends State<InCallScreen> {
+class _InCallScreenState extends ConsumerState<InCallScreen> {
   // --- IMPORTANT: CONFIGURE YOUR BACKEND URL ---
   final String _backendUrl = dotenv.env['API_URL'] ?? '';
   // -----------------------------------------
 
   final TextEditingController _textController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final List<Message> _messages = [];
   WebSocketChannel? _channel;
   bool _isCallConnected = false; // 통화 연결 상태 확인용 변수
+  List<String> _currentSuggestions = [];
+  bool _isSuggestionVisible = false;
 
   // --- Suggestions State ---
   List<String> _serverSuggestions = [];
@@ -92,30 +96,77 @@ class _InCallScreenState extends State<InCallScreen> {
     return result;
   }
 
+  // [UX 개선] 입력된 텍스트를 분석하여 상황에 맞는 문장을 동적으로 생성
+  List<String> _generateDynamicSuggestions(String query) {
+    final suggestions = <String>[];
+
+    // 1. 숫자 추출 (예: "6", "4")
+    final numbers = RegExp(
+      r'\d+',
+    ).allMatches(query).map((m) => m.group(0)!).toList();
+
+    // 2. 키워드 감지
+    final hasStore = query.contains('가게') || query.contains('식당');
+
+    // Case 1: "가게"만 입력 시
+    if (hasStore && numbers.isEmpty) {
+      suggestions.add('가게 예약하고 싶어서요.');
+      suggestions.add('혹시 가게 위치가 어디인가요?');
+    }
+
+    // Case 2: 숫자 감지 (시간/인원 추론)
+    if (numbers.isNotEmpty) {
+      if (numbers.length == 1) {
+        final n = numbers[0];
+        // 숫자가 하나면 시간이나 인원으로 추론
+        suggestions.add('오늘 저녁 ${n}시에 예약하고 싶어요.');
+        suggestions.add('${n}명 예약 가능한가요?');
+        if (hasStore) suggestions.add('가게에 ${n}시쯤 도착할 것 같아요.');
+      } else if (numbers.length >= 2) {
+        final n1 = numbers[0];
+        final n2 = numbers[1];
+        // 숫자가 두 개면 [시간, 인원] 순서로 추론 (예: "6 4" -> 6시 4명)
+        suggestions.add('오늘 ${n1}시에 ${n2}명 예약하고 싶어요.');
+        suggestions.add('내일 ${n1}시, ${n2}명 자리 있나요?');
+      }
+    }
+
+    return suggestions;
+  }
+
   List<String> _getSuggestions(String query) {
-    final allSuggestions = {
+    // 0. 사용자 설정 문구 가져오기
+    final customPhrases = ref.read(customPhrasesProvider);
+
+    // 1. 정적 추천 목록 (사용자 설정 + 서버 + 기본)
+    final staticSuggestions = {
+      ...customPhrases, // 사용자가 등록한 문구를 최우선으로 배치
       ..._serverSuggestions,
       ..._defaultSuggestions,
     }.toList();
 
-    // [UX 개선] 검색어가 없어도 기본 상용구를 즉시 보여줍니다.
-    // 사용자가 입력창을 터치하자마자 예약 관련 문구를 선택할 수 있습니다.
-    if (query.isEmpty) return allSuggestions;
+    if (query.isEmpty) return staticSuggestions;
 
-    // [한글 최적화] 대소문자 변환 대신, 공백과 특수문자를 제거하여 검색 정확도 향상
-    // 예: '네알' 또는 'ㄴㅇ' 입력 -> '네, 알겠습니다.' 검색됨
+    // 2. 동적 추천 생성 (입력값 기반)
+    final dynamicSuggestions = _generateDynamicSuggestions(query);
+
+    // 3. 정적 목록 필터링
     final cleanQuery = query.replaceAll(RegExp(r'[\s,.\?!]'), '');
-
-    return allSuggestions.where((s) {
+    final filteredStatic = staticSuggestions.where((s) {
       final cleanSuggestion = s.replaceAll(RegExp(r'[\s,.\?!]'), '');
       return cleanSuggestion.contains(cleanQuery) ||
           _extractChosung(cleanSuggestion).contains(cleanQuery);
     }).toList();
+
+    // 4. 동적 추천을 최상단에 배치하여 합침
+    return [...dynamicSuggestions, ...filteredStatic];
   }
 
   @override
   void initState() {
     super.initState();
+    _textController.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
     if (widget.callId == 'test_mode') {
       // [테스트 모드] 웹소켓 연결 없이 UI 초기화
       setState(() {
@@ -127,11 +178,31 @@ class _InCallScreenState extends State<InCallScreen> {
             isFromUser: false,
           ),
         );
-        _serverSuggestions = ['테스트 답변 1', '테스트 답변 2', '네, 알겠습니다.'];
+        _serverSuggestions = ['테스트 답변 1', '테스트 답변 2', '네, 알겠습니다.', '가게 예약'];
+        _updateSuggestions();
       });
     } else {
       _connectWebSocket();
     }
+  }
+
+  void _onTextChanged() {
+    _updateSuggestions();
+  }
+
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus) {
+      setState(() {
+        _isSuggestionVisible = true;
+      });
+      _updateSuggestions();
+    }
+  }
+
+  void _updateSuggestions() {
+    setState(() {
+      _currentSuggestions = _getSuggestions(_textController.text);
+    });
   }
 
   void _scrollToBottom() {
@@ -196,6 +267,9 @@ class _InCallScreenState extends State<InCallScreen> {
               // [UX 최적화] 추천 답변이 도착하면 리스트 갱신
               if (data['suggestions'] != null) {
                 _serverSuggestions = List<String>.from(data['suggestions']);
+                if (_isSuggestionVisible) {
+                  _updateSuggestions();
+                }
               }
             } else if (data['type'] == 'user_text') {
               final lastMsgIndex = _messages.lastIndexWhere(
@@ -254,6 +328,7 @@ class _InCallScreenState extends State<InCallScreen> {
   @override
   void dispose() {
     _textController.dispose();
+    _focusNode.dispose();
     _scrollController.dispose();
     _channel?.sink.close();
     super.dispose();
@@ -270,6 +345,7 @@ class _InCallScreenState extends State<InCallScreen> {
         Message(original: text, translated: '(Sending...)', isFromUser: true),
       );
       _scrollToBottom();
+      _isSuggestionVisible = false; // 전송 후 자동완성 숨김
     });
 
     // [테스트 모드] 가짜 응답 시뮬레이션
@@ -366,6 +442,7 @@ class _InCallScreenState extends State<InCallScreen> {
                   ),
                 ),
                 const Divider(height: 1.0),
+                _buildSuggestionBar(),
                 Container(
                   decoration: BoxDecoration(color: Theme.of(context).cardColor),
                   child: _buildTextComposer(),
@@ -388,6 +465,49 @@ class _InCallScreenState extends State<InCallScreen> {
     );
   }
 
+  Widget _buildSuggestionBar() {
+    if (!_isSuggestionVisible || _currentSuggestions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      height: 50,
+      color: Colors.grey[100],
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+        scrollDirection: Axis.horizontal,
+        itemCount: _currentSuggestions.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8.0),
+        itemBuilder: (context, index) {
+          final suggestion = _currentSuggestions[index];
+          return ActionChip(
+            // [UI 개선] 칩 배경색을 테마 색상의 연한 톤으로 변경
+            backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+            // 테두리 제거 및 둥근 모서리 적용
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide.none,
+            ),
+            label: Text(
+              suggestion,
+              // 글자색은 테마 색상으로 통일
+              style: TextStyle(
+                color: Theme.of(context).primaryColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            onPressed: () {
+              _textController.text = suggestion;
+              _textController.selection = TextSelection.collapsed(
+                offset: suggestion.length,
+              );
+              _updateSuggestions(); // 텍스트 변경 반영
+            },
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildTextComposer() {
     return IconTheme(
       data: IconThemeData(color: Theme.of(context).colorScheme.secondary),
@@ -396,41 +516,24 @@ class _InCallScreenState extends State<InCallScreen> {
         child: Row(
           children: [
             Flexible(
-              child: TypeAheadField<String>(
+              child: TextField(
                 controller: _textController,
-                builder: (context, controller, focusNode) {
-                  return TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    onSubmitted: _handleSubmitted,
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Send a message',
-                    ),
-                  );
+                focusNode: _focusNode,
+                onSubmitted: _handleSubmitted,
+                onTap: () {
+                  setState(() {
+                    _isSuggestionVisible = true;
+                  });
+                  _updateSuggestions();
                 },
-                suggestionsCallback: _getSuggestions,
-                itemBuilder: (context, suggestion) {
-                  return ListTile(title: Text(suggestion));
+                onChanged: (text) {
+                  setState(() {
+                    _isSuggestionVisible = true;
+                  });
                 },
-                decorationBuilder: (context, child) {
-                  return Material(
-                    type: MaterialType.card,
-                    elevation: 4, // 그림자를 주어 배경과 구분
-                    borderRadius: BorderRadius.circular(8),
-                    child: child,
-                  );
-                },
-                onSelected: (suggestion) {
-                  _textController.text = suggestion;
-                  _textController.selection = TextSelection.collapsed(
-                    offset: suggestion.length,
-                  );
-                },
-                direction: VerticalDirection.up, // 추천 목록을 위로 띄움
-                hideOnEmpty: true,
-                constraints: const BoxConstraints(maxHeight: 200), // 목록 높이 제한
-                // 입력창과 추천 목록 사이의 간격 (위로 12픽셀 띄움)
-                offset: const Offset(0, 12),
+                decoration: const InputDecoration.collapsed(
+                  hintText: 'Send a message',
+                ),
               ),
             ),
             Container(
