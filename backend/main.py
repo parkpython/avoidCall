@@ -108,6 +108,30 @@ async def translate_text(text, target_lang):
     except Exception as e:
         print(f"Translation Error: {e}"); return None
 
+async def translate_and_refine(text, target_lang):
+    """번역과 동시에 STT 오류 보정(Refinement)을 수행합니다."""
+    if not text or len(text.strip()) < 1: return {"translated": "", "refined": None}
+    try:
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": f"""You are a professional interpreter. 
+1. Translate the input text to {target_lang}.
+2. If the input seems fragmented, noisy, or grammatically incorrect (common in STT), provide a 'refined' translation where you infer the intended meaning.
+3. If the input is clear, set 'refined' to null.
+4. Output JSON format: {{ "translated": "...", "refined": "..." or null }}"""},
+                {"role": "user", "content": text}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        print(f"Refinement Error: {e}")
+        # JSON 파싱 실패 시 기본 번역만 반환
+        basic = await translate_text(text, target_lang)
+        return {"translated": basic, "refined": None}
+
 async def text_to_speech_multilingual(text, voice="alloy"):
     try:
         response = await openai_client.audio.speech.create(
@@ -220,18 +244,20 @@ async def call(request: CallRequest):
             
             await asyncio.sleep(1)
             # 2. 가짜 상대방의 첫 인사 (AI 번역 테스트용)
-            fake_greeting = "Hello, I want to make a reservation for tonight."
-            translated_greeting = await translate_text(fake_greeting, "Korean")
+            # [테스트] 일부러 끊기는 문장을 넣어 보정 기능 확인
+            fake_greeting = "Hello... I want... uh... reserv... table for tonight."
+            result = await translate_and_refine(fake_greeting, "Korean")
             
             # 앱으로 전송 (상대방 말인 것처럼)
             await active_calls[call_id]["to_app_queue"].put({
                 "type": "translation",
                 "original": fake_greeting,
-                "translated": translated_greeting
+                "translated": result.get("translated"),
+                "refined": result.get("refined")
             })
             
             # [추가] 테스트 모드에서도 AI 추천 답변 생성 확인
-            suggestions = await generate_reply_suggestions(translated_greeting)
+            suggestions = await generate_reply_suggestions(result.get("refined") or result.get("translated"))
             if suggestions:
                 await active_calls[call_id]["to_app_queue"].put({
                     "type": "suggestions_update",
@@ -395,19 +421,26 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             async def handle_deepgram_transcript(transcript):
                 if len(transcript) > 0:
                     if call_info.get("ai_mediation", True):
-                        korean_translation = await translate_text(transcript, "Korean")
+                        # [UX 개선] 번역 + 보정(Refinement) 동시 수행
+                        result = await translate_and_refine(transcript, "Korean")
+                        korean_translation = result.get("translated")
+                        refined_translation = result.get("refined")
                     else:
                         korean_translation = transcript # 번역 없이 원문 그대로 전송
+                        refined_translation = None
+
                     if korean_translation:
                         # 1. [UX 최적화] 번역문 즉시 전송 (지연 시간 제거)
                         await call_info["to_app_queue"].put({
                             "type": "translation",
                             "original": transcript,
                             "translated": korean_translation,
+                            "refined": refined_translation
                         })
                         
                         # 2. 추천 답변은 비동기로 생성 후 별도 전송
-                        suggestions = await generate_reply_suggestions(korean_translation)
+                        # 보정된 텍스트가 있다면 그것을 기준으로 답변 추천
+                        suggestions = await generate_reply_suggestions(refined_translation or korean_translation)
                         if suggestions:
                             await call_info["to_app_queue"].put({
                                 "type": "suggestions_update",

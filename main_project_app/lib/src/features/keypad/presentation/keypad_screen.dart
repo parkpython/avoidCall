@@ -140,7 +140,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
           'target_number': 'TEST', // 백엔드에서 테스트 모드로 인식
           'language': language,
           'greeting_text': '',
-          'ai_mediation': true,
+          'ai_mediation': _aiMediation,
           'voice_preset': 'alloy',
         }),
       );

@@ -12,11 +12,13 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 class Message {
   final String original;
   final String translated;
+  final String? refined; // [추가] AI 보정 텍스트
   final bool isFromUser;
 
   Message({
     required this.original,
     required this.translated,
+    this.refined,
     required this.isFromUser,
   });
 }
@@ -259,6 +261,7 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
                 Message(
                   original: data['original'],
                   translated: data['translated'],
+                  refined: data['refined'], // [추가] 보정 데이터 수신
                   isFromUser: false,
                 ),
               );
@@ -361,6 +364,7 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
               _messages[lastMsgIndex] = Message(
                 original: text,
                 translated: '$text (번역됨)',
+                refined: null,
                 isFromUser: true,
               );
             }
@@ -369,6 +373,7 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
               Message(
                 original: 'Echo: $text',
                 translated: '에코: $text',
+                refined: 'AI 추측: $text (보정됨)', // 테스트용 가짜 보정
                 isFromUser: false,
               ),
             );
@@ -421,11 +426,30 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
                           message.original,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        subtitle: Text(
-                          message.translated,
-                          style: TextStyle(
-                            color: Colors.black.withOpacity(0.6),
-                          ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              message.translated,
+                              style: TextStyle(
+                                color: Colors.black.withOpacity(0.6),
+                              ),
+                            ),
+                            // [UX 개선] 보정된 텍스트가 있으면 표시
+                            if (message.refined != null &&
+                                message.refined != message.translated)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
+                                child: Text(
+                                  '✨ AI 추측: ${message.refined}',
+                                  style: TextStyle(
+                                    color: Theme.of(context).primaryColor,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                         tileColor: message.isFromUser
                             ? Colors.blue[50]
