@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel
+from difflib import SequenceMatcher # [추가] 텍스트 유사도 비교용
 
 # Twilio, Deepgram, OpenAI
 from twilio.rest import Client as TwilioClient
@@ -108,24 +109,52 @@ async def translate_text(text, target_lang):
     except Exception as e:
         print(f"Translation Error: {e}"); return None
 
-async def translate_and_refine(text, target_lang):
-    """번역과 동시에 STT 오류 보정(Refinement)을 수행합니다."""
+async def translate_and_refine(text, target_lang, context_history=[]):
+    """
+    번역과 보정을 수행하되, 원본과 너무 동떨어진 보정은 거부합니다.
+    context_history: 이전 대화 내용 리스트 (최근 2개 정도)
+    """
     if not text or len(text.strip()) < 1: return {"translated": "", "refined": None}
+    
+    # [전략 2] 이전 대화 맥락을 프롬프트에 녹임
+    recent_context = "\n".join([f"- {msg}" for msg in context_history[-2:]])
+    
     try:
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": f"""You are a professional interpreter. 
-1. Translate the input text to {target_lang}.
-2. If the input seems fragmented, noisy, or grammatically incorrect (common in STT), provide a 'refined' translation where you infer the intended meaning.
-3. If the input is clear, set 'refined' to null.
-4. Output JSON format: {{ "translated": "...", "refined": "..." or null }}"""},
-                {"role": "user", "content": text}
+                {"role": "system", "content": f"""You are a conservative interpreter.
+Target Language: {target_lang}
+
+Rules:
+1. Translate the 'Current Input' to {target_lang}.
+2. IF the input is garbled/noisy BUT the meaning is clear from 'Context', provide a 'refined' version.
+3. [CRITICAL] Do NOT hallucinate. If the input is too ambiguous or just noise, return 'refined': null.
+4. If 'refined' changes the meaning significantly from the phonetic sound of the input, discard it.
+
+Output JSON: {{ "translated": "...", "refined": "..." or null }}"""},
+                
+                {"role": "user", "content": f"""Context:
+{recent_context}
+
+Current Input: {text}"""}
             ],
             response_format={"type": "json_object"},
-            temperature=0.1
+            temperature=0.0 # [전략 1] 창의성 0으로 설정 (매우 중요!)
         )
-        return json.loads(response.choices[0].message.content)
+        
+        result = json.loads(response.choices[0].message.content)
+        translated = result.get("translated", "")
+        refined = result.get("refined")
+
+        # [전략 3] 안전장치: 원본 길이와 너무 차이가 나면 의심 (예: '으어' -> '안녕하세요 반갑습니다')
+        if refined:
+            # 원본 길이 대비 4배 이상 길어지면 환각일 가능성 높음 (영어/한국어 차이 고려해도 과함)
+            if len(refined) > len(text) * 4: 
+                refined = None
+            
+        return {"translated": translated, "refined": refined}
+
     except Exception as e:
         print(f"Refinement Error: {e}")
         # JSON 파싱 실패 시 기본 번역만 반환
@@ -232,7 +261,8 @@ async def call(request: CallRequest):
             "greeting_text": request.greeting_text,
             "ai_mediation": request.ai_mediation,
             "voice_preset": request.voice_preset,
-            "twilio_call_sid": "TEST_SID"
+            "twilio_call_sid": "TEST_SID",
+            "conversation_history": [], # [추가] 대화 기록 저장용
         }
 
         # 가상의 상대방(Simulated Partner)을 백그라운드에서 실행
@@ -286,7 +316,8 @@ async def call(request: CallRequest):
         "greeting_text": request.greeting_text,  # 인삿말 저장
         "ai_mediation": request.ai_mediation,    # AI 중재 여부 저장
         "voice_preset": request.voice_preset,    # [추가] 목소리 설정 저장
-        "twilio_call_sid": None                  # [추가] Twilio SID 저장 공간
+        "twilio_call_sid": None,                 # [추가] Twilio SID 저장 공간
+        "conversation_history": [],              # [추가] 대화 기록 저장용
     }
     
     try:
@@ -421,8 +452,10 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             async def handle_deepgram_transcript(transcript):
                 if len(transcript) > 0:
                     if call_info.get("ai_mediation", True):
-                        # [UX 개선] 번역 + 보정(Refinement) 동시 수행
-                        result = await translate_and_refine(transcript, "Korean")
+                        # [수정] 대화 기록(context)을 같이 넘김
+                        history = call_info.get("conversation_history", [])
+                        
+                        result = await translate_and_refine(transcript, "Korean", history)
                         korean_translation = result.get("translated")
                         refined_translation = result.get("refined")
                     else:
@@ -430,6 +463,13 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         refined_translation = None
 
                     if korean_translation:
+                        # [추가] 성공한 번역을 대화 기록에 저장 (최대 5개만 유지)
+                        # 원본(영어)과 번역(한국어)을 같이 저장하면 맥락 파악에 더 좋음
+                        final_text = refined_translation or korean_translation
+                        call_info["conversation_history"].append(f"Other: {final_text}")
+                        if len(call_info["conversation_history"]) > 5:
+                            call_info["conversation_history"].pop(0)
+
                         # 1. [UX 최적화] 번역문 즉시 전송 (지연 시간 제거)
                         await call_info["to_app_queue"].put({
                             "type": "translation",
