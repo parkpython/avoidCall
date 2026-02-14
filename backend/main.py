@@ -69,6 +69,7 @@ GREETINGS = {
 
 # Global Cache for TTS Audio to reduce latency
 TTS_CACHE = {}
+MP3_CACHE = {} # [추가] 미리듣기용 MP3 캐시
 TRANSLATION_CACHE = {} # (text, target_lang) -> translated_text
 
 # --- Centralized Call Management ---
@@ -252,8 +253,15 @@ async def prefetch(request: PrefetchRequest):
 async def preview_voice(request: PreviewRequest):
     """목소리 미리듣기를 위해 MP3 오디오를 반환합니다."""
     if not request.text: return {"status": "error", "message": "No text provided"}
+    
+    # [최적화] 캐시 확인 (이미 생성된 MP3가 있으면 OpenAI 호출 생략)
+    cache_key = (request.text, request.voice_preset)
+    if cache_key in MP3_CACHE:
+        return Response(content=MP3_CACHE[cache_key], media_type="audio/mpeg")
+
     audio = await text_to_speech_mp3(request.text, request.voice_preset)
     if audio:
+        MP3_CACHE[cache_key] = audio # [최적화] 생성된 오디오 캐시에 저장
         return Response(content=audio, media_type="audio/mpeg")
     return {"status": "error", "message": "TTS generation failed"}
 

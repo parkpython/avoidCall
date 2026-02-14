@@ -14,6 +14,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _greetingController;
   final TextEditingController _phraseController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false; // 재생 상태 관리
 
   @override
   void initState() {
@@ -29,6 +30,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _phraseController.dispose();
     _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _playPreview() async {
+    final greeting = ref.read(greetingProvider);
+    final voice = ref.read(voiceProvider);
+
+    if (greeting.isEmpty) return;
+
+    setState(() => _isPlaying = true);
+
+    try {
+      final bytes = await ref
+          .read(voicePreviewProvider)
+          .fetchPreview(greeting, voice);
+
+      if (!mounted) return;
+
+      if (bytes != null) {
+        await _audioPlayer.stop();
+        // [수정] mimeType을 명시하여 macOS/iOS에서 포맷 인식 오류 방지
+        await _audioPlayer.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
+      }
+    } catch (e) {
+      debugPrint('Preview error: $e');
+    } finally {
+      if (mounted) setState(() => _isPlaying = false);
+    }
   }
 
   @override
@@ -68,41 +96,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: currentVoice,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            items: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
-                .map(
-                  (voice) => DropdownMenuItem(
-                    value: voice,
-                    child: Text(voice.toUpperCase()),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: currentVoice,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
-                )
-                .toList(),
-            onChanged: (value) async {
-              if (value != null) {
-                ref.read(voiceProvider.notifier).setVoice(value);
-
-                // 목소리 미리듣기 재생
-                final greeting = ref.read(greetingProvider);
-                if (greeting.isNotEmpty) {
-                  final bytes = await ref
-                      .read(voicePreviewProvider)
-                      .fetchPreview(greeting, value);
-
-                  // [검증 보완] 비동기 요청 후 위젯이 여전히 존재하는지 확인
-                  if (!mounted) return;
-
-                  if (bytes != null) {
-                    await _audioPlayer.stop(); // 기존 재생 중지
-                    await _audioPlayer.play(BytesSource(bytes));
-                  }
-                }
-              }
-            },
+                  items: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+                      .map(
+                        (voice) => DropdownMenuItem(
+                          value: voice,
+                          child: Text(voice.toUpperCase()),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      ref.read(voiceProvider.notifier).setVoice(value);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _isPlaying ? null : _playPreview,
+                icon: _isPlaying
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.volume_up, size: 30),
+                color: Colors.blue,
+                tooltip: 'Preview Voice',
+              ),
+            ],
           ),
           const SizedBox(height: 24),
           const Text(
