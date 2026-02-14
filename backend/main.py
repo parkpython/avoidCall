@@ -6,7 +6,7 @@ import struct
 import uuid
 import time
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from difflib import SequenceMatcher # [추가] 텍스트 유사도 비교용
@@ -172,6 +172,15 @@ async def text_to_speech_multilingual(text, voice="alloy"):
     except Exception as e:
         print(f"TTS Error: {e}"); return None
 
+async def text_to_speech_mp3(text, voice="alloy"):
+    try:
+        response = await openai_client.audio.speech.create(
+            model="tts-1", voice=voice, input=text, response_format="mp3"
+        )
+        return response.content
+    except Exception as e:
+        print(f"TTS MP3 Error: {e}"); return None
+
 async def generate_reply_suggestions(text):
     """GPT-4o-mini를 사용하여 짧은 한국어 답변 3개를 생성합니다."""
     if not text: return []
@@ -207,6 +216,10 @@ class PrefetchRequest(BaseModel):
     language: str
     voice_preset: str = "alloy"
 
+class PreviewRequest(BaseModel):
+    text: str
+    voice_preset: str = "alloy"
+
 # --- API Endpoints ---
 @app.post("/prefetch")
 async def prefetch(request: PrefetchRequest):
@@ -234,6 +247,15 @@ async def prefetch(request: PrefetchRequest):
             TTS_CACHE[(translated_text, voice)] = audio
     
     return {"status": "success", "translated_text": translated_text}
+
+@app.post("/preview-voice")
+async def preview_voice(request: PreviewRequest):
+    """목소리 미리듣기를 위해 MP3 오디오를 반환합니다."""
+    if not request.text: return {"status": "error", "message": "No text provided"}
+    audio = await text_to_speech_mp3(request.text, request.voice_preset)
+    if audio:
+        return Response(content=audio, media_type="audio/mpeg")
+    return {"status": "error", "message": "TTS generation failed"}
 
 @app.post("/call")
 async def call(request: CallRequest):

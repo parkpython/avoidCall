@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -191,3 +192,33 @@ final customPhrasesProvider =
     NotifierProvider<CustomPhrasesNotifier, List<String>>(() {
       return CustomPhrasesNotifier();
     });
+
+/// 6. 목소리 미리듣기 서비스
+final voicePreviewProvider = Provider((ref) => VoicePreviewService());
+
+class VoicePreviewService {
+  Future<Uint8List?> fetchPreview(String text, String voice) async {
+    final backendUrl = dotenv.env['API_URL'] ?? '';
+    if (backendUrl.isEmpty) return null;
+
+    try {
+      var url = backendUrl;
+      if (!url.startsWith('http')) {
+        url = 'https://$url';
+      }
+
+      final response = await http.post(
+        Uri.parse('$url/preview-voice'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text': text, 'voice_preset': voice}),
+      );
+
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+    } catch (e) {
+      print('Voice preview failed: $e');
+    }
+    return null;
+  }
+}

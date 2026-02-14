@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
 
@@ -12,6 +13,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _greetingController;
   final TextEditingController _phraseController = TextEditingController();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -25,6 +27,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _greetingController.dispose();
     _phraseController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -79,9 +82,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) {
+            onChanged: (value) async {
               if (value != null) {
                 ref.read(voiceProvider.notifier).setVoice(value);
+
+                // 목소리 미리듣기 재생
+                final greeting = ref.read(greetingProvider);
+                if (greeting.isNotEmpty) {
+                  final bytes = await ref
+                      .read(voicePreviewProvider)
+                      .fetchPreview(greeting, value);
+
+                  // [검증 보완] 비동기 요청 후 위젯이 여전히 존재하는지 확인
+                  if (!mounted) return;
+
+                  if (bytes != null) {
+                    await _audioPlayer.stop(); // 기존 재생 중지
+                    await _audioPlayer.play(BytesSource(bytes));
+                  }
+                }
               }
             },
           ),
