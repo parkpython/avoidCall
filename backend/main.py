@@ -446,17 +446,20 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     async def prepare_greeting():
         final_text = greeting_text
         if user_greeting:
-            # Check Translation Cache first
-            cache_key = (user_greeting, target_lang)
-            if cache_key in TRANSLATION_CACHE:
-                translated = TRANSLATION_CACHE[cache_key]
-            else:
-                translated = await translate_text(user_greeting, target_lang)
+            if call_info.get("ai_mediation", True):
+                # Check Translation Cache first
+                cache_key = (user_greeting, target_lang)
+                if cache_key in TRANSLATION_CACHE:
+                    translated = TRANSLATION_CACHE[cache_key]
+                else:
+                    translated = await translate_text(user_greeting, target_lang)
+                    if translated:
+                        TRANSLATION_CACHE[cache_key] = translated
+                
                 if translated:
-                    TRANSLATION_CACHE[cache_key] = translated
-            
-            if translated:
-                final_text = translated
+                    final_text = translated
+            else:
+                final_text = user_greeting
         
         # Check Cache first (메모리에 저장된 오디오가 있으면 즉시 반환)
         if (final_text, voice_preset) in TTS_CACHE:

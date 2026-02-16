@@ -18,10 +18,11 @@ class DeviceIdNotifier extends Notifier<String> {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
     if (id == null) {
-      // ID가 없으면 랜덤 생성 (간단한 UUID 대체)
-      id =
-          DateTime.now().millisecondsSinceEpoch.toString() +
-          Random().nextInt(10000).toString();
+      // [Security Fix] 예측 가능한 DateTime 대신 Random.secure()를 사용하여 충돌 및 추측 방지
+      final random = Random.secure();
+      final values = List<int>.generate(16, (i) => random.nextInt(255));
+      // 간단한 UUID v4 형태 흉내 (또는 uuid 패키지 사용 권장)
+      id = base64UrlEncode(values);
       await prefs.setString('device_id', id);
     }
     state = id;
@@ -222,3 +223,28 @@ class VoicePreviewService {
     return null;
   }
 }
+
+/// 7. AI 중재(번역) 사용 여부 설정
+class AiMediationNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    _loadState();
+    return true; // 기본값: 켜짐 (번역 수행)
+  }
+
+  Future<void> _loadState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getBool('ai_mediation');
+    if (saved != null) state = saved;
+  }
+
+  Future<void> setAiMediation(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('ai_mediation', value);
+  }
+}
+
+final aiMediationProvider = NotifierProvider<AiMediationNotifier, bool>(() {
+  return AiMediationNotifier();
+});
