@@ -7,25 +7,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Screens
 import 'package:main_project_app/src/core/routing/scaffold_with_nav_bar.dart';
 import 'package:main_project_app/src/features/incall/presentation/in_call_screen.dart';
+import 'package:main_project_app/src/features/home/presentation/home_screen.dart';
 import 'package:main_project_app/src/features/keypad/presentation/keypad_screen.dart';
 import 'package:main_project_app/src/features/settings/presentation/settings_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: '/home',
     debugLogDiagnostics: true,
     routes: [
+      // 1. 홈 화면 (Footer 없음)
+      GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
       // 하단 탭바가 있는 Shell Route 설정
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return ScaffoldWithNavBar(navigationShell: navigationShell);
         },
         branches: [
-          // 첫 번째 탭: 키패드
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/',
+                path: '/keypad',
                 builder: (context, state) => const KeypadScreen(),
               ),
             ],

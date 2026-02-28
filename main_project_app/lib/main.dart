@@ -1,22 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:main_project_app/src/app.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:main_project_app/src/core/routing/router.dart';
 
-Future<void> main() async {
-  // 플러터 엔진을 먼저 초기화해야 assets 로드가 가능합니다.
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await dotenv.load(fileName: ".env");
-  } catch (e) {
-    debugPrint("Failed to load .env file: $e");
-  }
-
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL'] ?? '',
-    anonKey: dotenv.env['SUPABASE_KEY'] ?? '',
-  );
+  // .env 파일 로드 (KeypadScreen에서 API URL 사용 시 필요)
+  await dotenv.load(fileName: ".env");
 
   runApp(const ProviderScope(child: MyApp()));
+}
+
+class MyApp extends ConsumerWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(routerProvider);
+    return MaterialApp.router(
+      routerConfig: router,
+      title: 'Avoid Call',
+      theme: ThemeData(primarySwatch: Colors.blue),
+    );
+  }
 }
