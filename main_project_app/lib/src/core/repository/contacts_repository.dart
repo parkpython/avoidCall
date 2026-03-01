@@ -1,10 +1,9 @@
+// import 'package:main_project_app/src/core/database/database.dart';
 
-import 'package:main_project_app/src/core/database/database.dart';
+// class ContactsRepository {
+//   final AppDatabase _db;
 
-class ContactsRepository {
-  final AppDatabase _db;
+//   ContactsRepository(this._db);
 
-  ContactsRepository(this._db);
-
-  // Add methods to interact with the contacts table
-}
+//   // Add methods to interact with the contacts table
+// }

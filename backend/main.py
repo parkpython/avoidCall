@@ -590,7 +590,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             try:
                 duration = int(time.time() - call_info["start_time"])
                 log_data = {
-                    "user_id": call_info["user_id"],
+                    "device_id": call_info["user_id"], # DB 컬럼명(device_id)에 맞춰 매핑
                     "call_uuid": call_id,
                     "twilio_sid": call_info.get("twilio_call_sid", ""),
                     "target_number": call_info["target_number"],

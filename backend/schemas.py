@@ -24,6 +24,7 @@ class UserProfile(UserBase):
 # --- Call Log Schemas ---
 class CallLogCreate(BaseModel):
     call_uuid: str
+    device_id: str
     target_number: str
 
 class CallLogUpdate(BaseModel):
