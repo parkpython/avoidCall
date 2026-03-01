@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# [Fix] 백엔드에서는 RLS를 우회하기 위해 Service Role Key를 우선 사용합니다.
+# .env 파일에 SUPABASE_SERVICE_ROLE_KEY를 추가하거나 SUPABASE_KEY에 Service Role Key를 넣으세요.
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("❌ [Supabase] Warning: SUPABASE_URL or SUPABASE_KEY not found in environment variables.")

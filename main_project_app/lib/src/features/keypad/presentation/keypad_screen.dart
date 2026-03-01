@@ -70,7 +70,16 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final language = ref.read(languageProvider);
     final greeting = ref.read(greetingProvider);
     final voice = ref.read(voiceProvider);
-    final deviceId = ref.read(deviceIdProvider); // 로컬 디바이스 ID 사용
+    String deviceId = ref.read(deviceIdProvider); // 로컬 디바이스 ID 사용
+
+    // [Fix] 앱 실행 직후 ID가 로드되지 않았을 경우 방어 로직
+    if (deviceId.isEmpty) {
+      _showFeedback(
+        'Device ID is initializing. Please try again.',
+        isError: true,
+      );
+      return;
+    }
 
     // [Debug Fix] 릴리즈 모드에서 .env가 로드되지 않았을 경우 사용자에게 알림
     if (_backendUrl.isEmpty) {
