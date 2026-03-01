@@ -106,7 +106,11 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         call_info["conversation_history"].append(f"Other: {final_text}")
                         if len(call_info["conversation_history"]) > 5: call_info["conversation_history"].pop(0)
 
-                        await db_service.log_message(db_id, transcript, korean_translation, refined_translation, False)
+                        call_info["full_logs"].append({
+                            "original": transcript,
+                            "translated": korean_translation,
+                            "is_user": False
+                        })
 
                         await call_info["to_app_queue"].put({
                             "type": "translation",
@@ -164,6 +168,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             await call_info["from_app_queue"].put("HANG_UP")
             if db_id:
                 end_time = datetime.now(timezone.utc).isoformat()
+                await db_service.save_conversation_log(db_id, call_info["full_logs"])
                 await db_service.update_call_status(db_id, "completed", end_time)
             try: deepgram_socket.finish()
             except: pass
@@ -181,7 +186,11 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                 
                 translated_text = await ai_service.translate_text(user_text, target_lang) if call_info.get("ai_mediation", True) else user_text
                 if translated_text:
-                    await db_service.log_message(db_id, user_text, translated_text, None, True)
+                    call_info["full_logs"].append({
+                        "original": user_text,
+                        "translated": translated_text,
+                        "is_user": True
+                    })
                     await call_info["to_app_queue"].put({"type": "user_text", "original": user_text, "translated": translated_text})
                     audio_bytes = await ai_service.text_to_speech_multilingual(translated_text, voice_preset)
                     if audio_bytes and call_info["stream_sid"]:

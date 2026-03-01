@@ -44,12 +44,14 @@ async def update_call_status(db_id, status, ended_at=None):
     except Exception as e:
         print(f"⚠️ [Supabase] Failed to update status to {status}: {e}")
 
-async def log_message(db_id, original, translated, refined, is_user):
-    """대화 내용을 저장합니다."""
+async def save_conversation_log(db_id, logs):
+    """통화 종료 후 대화 내용을 한 번에 저장합니다."""
     if not supabase or not db_id: return
     try:
-        data = {"call_id": db_id, "original_text": original, "translated_text": translated, "refined_text": refined, "is_from_user": is_user}
+        # call_logs 테이블에 transcript 컬럼(JSONB)이 있다고 가정합니다.
+        data = {"transcript": logs}
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: supabase.table("call_messages").insert(data).execute())
+        await loop.run_in_executor(None, lambda: supabase.table("call_logs").update(data).eq("id", db_id).execute())
+        print(f"✅ [Supabase] Saved conversation log for {db_id}")
     except Exception as e:
-        print(f"⚠️ [Supabase] Failed to log message: {e}")
+        print(f"⚠️ [Supabase] Failed to save conversation log: {e}")

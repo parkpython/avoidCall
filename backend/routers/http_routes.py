@@ -76,6 +76,7 @@ async def call(request: CallRequest):
         "voice_preset": request.voice_preset,
         "twilio_call_sid": None,
         "conversation_history": [],
+        "full_logs": [],
         "db_id": db_id,
     }
     
