@@ -598,10 +598,16 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     # [Supabase] 통화 연결 상태 업데이트
                     if db_id:
                         print(f"🛠️ [Supabase] Updating status to 'connected' for ID: {db_id}")
-                        asyncio.create_task(loop.run_in_executor(
-                            None,
-                            lambda: supabase.table("call_logs").update({"status": "connected"}).eq("id", db_id).execute()
-                        ))
+                        # [Fix] create_task는 코루틴을 받아야 하므로 래퍼 함수 사용
+                        async def _update_status():
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    lambda: supabase.table("call_logs").update({"status": "connected"}).eq("id", db_id).execute()
+                                )
+                            except Exception as e:
+                                print(f"⚠️ [Supabase] Failed to update status: {e}")
+                        asyncio.create_task(_update_status())
 
                     # --- [UX Improvement] Send Automated Greeting ---
                     # 미리 준비해둔 TTS 데이터를 기다렸다가 즉시 전송
