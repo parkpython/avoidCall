@@ -5,6 +5,7 @@ import base64
 import struct
 import uuid
 import time
+import traceback
 from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse, Response
@@ -343,15 +344,19 @@ async def call(request: CallRequest):
             "status": "dialing"
             # started_at은 DB default now() 사용
         }
+        print(f"🛠️ [Supabase] Attempting to insert call_log: {initial_log}")
         loop = asyncio.get_running_loop()
         res = await loop.run_in_executor(
             None, 
             lambda: supabase.table("call_logs").insert(initial_log).execute()
         )
+        print(f"✅ [Supabase] Insert result: {res}")
         if res.data:
             db_id = res.data[0]['id']
+            print(f"✅ [Supabase] Call Log Created. DB_ID: {db_id}")
     except Exception as e:
-        print(f"⚠️ Failed to create call log: {e}")
+        print(f"⚠️ [Supabase] Failed to create call log: {e}")
+        traceback.print_exc()
 
     # Set up communication queues for this call
     active_calls[call_id] = {
@@ -463,7 +468,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
 
     # [Supabase] 메시지 저장 헬퍼 함수
     async def log_message(original, translated, refined, is_user):
-        if not db_id: return
+        if not db_id: return # DB ID가 없으면 로그 저장 스킵
         try:
             data = {
                 "call_id": db_id,
@@ -474,7 +479,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             }
             await loop.run_in_executor(None, lambda: supabase.table("call_messages").insert(data).execute())
         except Exception as e:
-            print(f"⚠️ Failed to log message: {e}")
+            print(f"⚠️ [Supabase] Failed to log message: {e}")
 
     # --- [Optimization 1] Prefetch Greeting TTS ---
     # 'start' 이벤트를 기다리지 않고, 연결 즉시 TTS 생성을 시작합니다.
@@ -592,6 +597,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     
                     # [Supabase] 통화 연결 상태 업데이트
                     if db_id:
+                        print(f"🛠️ [Supabase] Updating status to 'connected' for ID: {db_id}")
                         asyncio.create_task(loop.run_in_executor(
                             None,
                             lambda: supabase.table("call_logs").update({"status": "connected"}).eq("id", db_id).execute()
@@ -638,16 +644,20 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             try:
                 if db_id:
                     end_time = datetime.now(timezone.utc).isoformat()
-                    await loop.run_in_executor(
+                    print(f"🛠️ [Supabase] Updating status to 'completed' for ID: {db_id}")
+                    res = await loop.run_in_executor(
                         None, 
                         lambda: supabase.table("call_logs").update({
                             "ended_at": end_time,
                             "status": "completed"
                         }).eq("id", db_id).execute()
                     )
-                    print(f"✅ Call Log Updated: ID {db_id}")
+                    print(f"✅ [Supabase] Call Log Updated: {res}")
+                else:
+                    print("⚠️ [Supabase] Cannot update call log: No db_id found.")
             except Exception as e:
-                print(f"❌ Failed to update call log: {e}")
+                print(f"❌ [Supabase] Failed to update call log: {e}")
+                traceback.print_exc()
 
             try:
                 deepgram_socket.finish()
