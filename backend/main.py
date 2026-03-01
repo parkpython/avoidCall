@@ -5,6 +5,7 @@ import base64
 import struct
 import uuid
 import time
+from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse, Response
 from dotenv import load_dotenv
@@ -332,6 +333,26 @@ async def call(request: CallRequest):
     # request.user_id(Device ID)를 조회하여 남은 통화 시간이 있는지 확인하는 로직이 이곳에 들어갑니다.
     # if get_user_balance(request.user_id) <= 0: return {"status": "error", "message": "Insufficient balance"}
 
+    # [Supabase] 1. 통화 시작 기록 (call_logs)
+    db_id = None
+    try:
+        initial_log = {
+            "device_id": request.user_id,
+            "target_number": request.target_number,
+            "language": request.language,
+            "status": "dialing"
+            # started_at은 DB default now() 사용
+        }
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(
+            None, 
+            lambda: supabase.table("call_logs").insert(initial_log).execute()
+        )
+        if res.data:
+            db_id = res.data[0]['id']
+    except Exception as e:
+        print(f"⚠️ Failed to create call log: {e}")
+
     # Set up communication queues for this call
     active_calls[call_id] = {
         "user_id": request.user_id,         # Device ID 저장
@@ -348,6 +369,7 @@ async def call(request: CallRequest):
         "voice_preset": request.voice_preset,    # [추가] 목소리 설정 저장
         "twilio_call_sid": None,                 # [추가] Twilio SID 저장 공간
         "conversation_history": [],              # [추가] 대화 기록 저장용
+        "db_id": db_id,                          # [추가] DB Primary Key 저장
     }
     
     try:
@@ -437,6 +459,22 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     target_lang = call_info["target_lang"]
     voice_preset = call_info.get("voice_preset", "alloy")
     loop = asyncio.get_running_loop()
+    db_id = call_info.get("db_id")
+
+    # [Supabase] 메시지 저장 헬퍼 함수
+    async def log_message(original, translated, refined, is_user):
+        if not db_id: return
+        try:
+            data = {
+                "call_id": db_id,
+                "original_text": original,
+                "translated_text": translated,
+                "refined_text": refined,
+                "is_from_user": is_user
+            }
+            await loop.run_in_executor(None, lambda: supabase.table("call_messages").insert(data).execute())
+        except Exception as e:
+            print(f"⚠️ Failed to log message: {e}")
 
     # --- [Optimization 1] Prefetch Greeting TTS ---
     # 'start' 이벤트를 기다리지 않고, 연결 즉시 TTS 생성을 시작합니다.
@@ -503,6 +541,9 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         if len(call_info["conversation_history"]) > 5:
                             call_info["conversation_history"].pop(0)
 
+                        # [Supabase] 상대방 메시지 저장
+                        await log_message(transcript, korean_translation, refined_translation, False)
+
                         # 1. [UX 최적화] 번역문 즉시 전송 (지연 시간 제거)
                         await call_info["to_app_queue"].put({
                             "type": "translation",
@@ -549,6 +590,13 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     call_info["stream_sid"] = data['start']['streamSid']
                     print(f"📞 Twilio stream started (SID: {call_info['stream_sid']})")
                     
+                    # [Supabase] 통화 연결 상태 업데이트
+                    if db_id:
+                        asyncio.create_task(loop.run_in_executor(
+                            None,
+                            lambda: supabase.table("call_logs").update({"status": "connected"}).eq("id", db_id).execute()
+                        ))
+
                     # --- [UX Improvement] Send Automated Greeting ---
                     # 미리 준비해둔 TTS 데이터를 기다렸다가 즉시 전송
                     final_greeting_text, greeting_audio = await greeting_task
@@ -588,24 +636,18 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             
             # --- [추가] 통화 종료 및 로그 저장 ---
             try:
-                duration = int(time.time() - call_info["start_time"])
-                log_data = {
-                    "device_id": call_info["user_id"], # DB 컬럼명(device_id)에 맞춰 매핑
-                    "call_uuid": call_id,
-                    "twilio_sid": call_info.get("twilio_call_sid", ""),
-                    "target_number": call_info["target_number"],
-                    "duration_seconds": duration,
-                    "cost": 0.0 # [TODO] 10분당 1000원 등 과금 로직 적용 가능
-                }
-                
-                # Supabase insert는 동기 함수이므로 executor에서 실행하여 이벤트 루프 차단 방지
-                await loop.run_in_executor(
-                    None, 
-                    lambda: supabase.table("call_logs").insert(log_data).execute()
-                )
-                print(f"✅ Call Log Saved: {duration}s for User {call_info['user_id']}")
+                if db_id:
+                    end_time = datetime.now(timezone.utc).isoformat()
+                    await loop.run_in_executor(
+                        None, 
+                        lambda: supabase.table("call_logs").update({
+                            "ended_at": end_time,
+                            "status": "completed"
+                        }).eq("id", db_id).execute()
+                    )
+                    print(f"✅ Call Log Updated: ID {db_id}")
             except Exception as e:
-                print(f"❌ Failed to save call log: {e}")
+                print(f"❌ Failed to update call log: {e}")
 
             try:
                 deepgram_socket.finish()
@@ -633,6 +675,9 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     translated_text = user_text # 번역 없이 입력한 텍스트 그대로 사용
                 
                 if translated_text:
+                    # [Supabase] 사용자 메시지 저장
+                    await log_message(user_text, translated_text, None, True)
+
                     await call_info["to_app_queue"].put({
                         "type": "user_text",
                         "original": user_text,
