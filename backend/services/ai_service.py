@@ -20,7 +20,7 @@ async def translate_text(text, target_lang, use_cache=True):
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": f"You are a professional interpreter. Translate the following text into {target_lang}. Output ONLY the translated text. Do not include any explanations or notes."},
+                {"role": "system", "content": f"You are a professional interpreter. Translate the following text into {target_lang}. Output ONLY the translated text. Do not include any explanations or notes. If the text is meaningless or random characters, return the original text."},
                 {"role": "user", "content": text}
             ],
             max_tokens=256,
@@ -54,10 +54,11 @@ async def translate_and_refine(text, target_lang, context_history=[]):
 Target Language: {target_lang}
 
 Rules:
-1. Translate the 'Current Input' to {target_lang}.
-2. IF the input is garbled/noisy BUT the meaning is clear from 'Context', provide a 'refined' version.
-3. [CRITICAL] Do NOT hallucinate. If the input is too ambiguous or just noise, return 'refined': null.
-4. If 'refined' changes the meaning significantly from the phonetic sound of the input, discard it.
+1. Translate the 'Current Input' to {target_lang}. If the input is meaningless, random characters, or noise, return the original input in 'translated'.
+2. [STRICT] Do NOT provide explanations, notes, or apologies (e.g., "I cannot translate..."). NEVER output a sentence describing the input.
+3. IF the input is garbled/noisy BUT the meaning is clear from 'Context', provide a 'refined' version.
+4. [CRITICAL] Do NOT hallucinate. If the input is too ambiguous or just noise, return 'refined': null.
+5. If 'refined' changes the meaning significantly from the phonetic sound of the input, discard it.
 
 Output JSON: {{ "translated": "...", "refined": "..." or null }}"""},
                 
