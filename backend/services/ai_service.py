@@ -1,4 +1,6 @@
 import json
+import numpy as np
+import librosa
 from config import groq_client, openai_client
 from utils.audio import convert_pcm_to_mulaw
 
@@ -90,20 +92,40 @@ Current Input: {text}"""}
         return {"translated": basic, "refined": None}
 
 async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
+    # [음질 개선] HD 모델은 캐시 키를 분리하거나, 기존 캐시를 비우는 것이 좋습니다.
+    # 여기서는 간단하게 voice에 '-hd'를 붙여 구분합니다.
+    cache_key = (text, f"{voice}-hd")
     if use_cache:
-        if (text, voice) in TTS_CACHE:
-            return TTS_CACHE[(text, voice)]
+        if cache_key in TTS_CACHE:
+            return TTS_CACHE[cache_key]
 
     try:
+        # [음질 개선 1] 고품질 TTS 모델 사용
         response = await openai_client.audio.speech.create(
-            model="tts-1", voice=voice, input=text, response_format="pcm"
+            model="tts-1-hd", voice=voice, input=text, response_format="pcm"
         )
-        pcm_24k = response.content
-        pcm_8k = b"".join(pcm_24k[i:i+2] for i in range(0, len(pcm_24k), 6) if i + 2 <= len(pcm_24k))
-        audio = convert_pcm_to_mulaw(pcm_8k)
+        pcm_24k_bytes = response.content
+
+        # [음질 개선 2] 고품질 리샘플링 (24kHz -> 8kHz)
+        # 1. 바이트를 16비트 정수 배열로 변환
+        pcm_24k_np = np.frombuffer(pcm_24k_bytes, dtype=np.int16)
+        
+        # 2. librosa에서 사용하기 위해 float32로 정규화
+        pcm_24k_float = pcm_24k_np.astype(np.float32) / 32768.0
+        
+        # 3. librosa를 사용해 8kHz로 리샘플링 (aliasing 방지)
+        pcm_8k_float = librosa.resample(pcm_24k_float, orig_sr=24000, target_sr=8000, res_type='kaiser_best')
+        
+        # 4. 다시 16비트 정수 배열로 변환
+        pcm_8k_np = (pcm_8k_float * 32768.0).astype(np.int16)
+        
+        # 5. 바이트로 변환
+        pcm_8k_bytes = pcm_8k_np.tobytes()
+
+        audio = convert_pcm_to_mulaw(pcm_8k_bytes)
         
         if use_cache and audio:
-            TTS_CACHE[(text, voice)] = audio
+            TTS_CACHE[cache_key] = audio
             
         return audio
     except Exception as e:
