@@ -8,5 +8,5 @@ deepgram-sdk==3.4.0
 supabase
 numpy
 librosa
-
+resampy
 # Force Rebuild 2024
