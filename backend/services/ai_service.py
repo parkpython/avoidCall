@@ -109,7 +109,7 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
     }
 
     try:
-        async with websockets.connect(uri, extra_headers=headers) as websocket:
+        async with websockets.connect(uri, additional_headers=headers) as websocket:
             # 2. 세션 설정: 목소리, 출력 포맷(ulaw), 그리고 마이크 감지 끄기
             await websocket.send(json.dumps({
                 "type": "session.update",
