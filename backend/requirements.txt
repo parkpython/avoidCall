@@ -6,7 +6,5 @@ twilio
 openai
 deepgram-sdk==3.4.0
 supabase
-numpy
-librosa
-resampy
+websockets
 # Force Rebuild 2024

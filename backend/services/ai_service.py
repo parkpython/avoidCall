@@ -1,8 +1,9 @@
 import json
-import numpy as np
-import librosa
-from config import groq_client, openai_client
-from utils.audio import convert_pcm_to_mulaw
+import base64
+import websockets
+from config import groq_client, openai_client, OPENAI_API_KEY
+# The 'convert_pcm_to_mulaw' and related libraries are no longer needed
+# as OpenAI's Realtime API can output µ-law directly.
 
 # --- Global Caches ---
 TTS_CACHE = {}
@@ -92,45 +93,82 @@ Current Input: {text}"""}
         return {"translated": basic, "refined": None}
 
 async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
-    # [음질 개선] HD 모델은 캐시 키를 분리하거나, 기존 캐시를 비우는 것이 좋습니다.
-    # 여기서는 간단하게 voice에 '-hd'를 붙여 구분합니다.
-    cache_key = (text, f"{voice}-hd")
-    if use_cache:
-        if cache_key in TTS_CACHE:
-            return TTS_CACHE[cache_key]
+    """
+    Generates speech using OpenAI's Realtime Audio API and returns it as a
+    single G.711 µ-law byte string, suitable for Twilio.
+    """
+    cache_key = (text, f"{voice}-ulaw")
+    if use_cache and cache_key in TTS_CACHE:
+        return TTS_CACHE[cache_key]
+
+    # 1. 올바른 Realtime API 엔드포인트 & 가성비 최강 mini 모델 지정
+    uri = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "OpenAI-Beta": "realtime=v1"  # Realtime API 필수 헤더
+    }
 
     try:
-        # [음질 개선 1] 고품질 TTS 모델 사용
-        response = await openai_client.audio.speech.create(
-            model="tts-1-hd", voice=voice, input=text, response_format="pcm"
-        )
-        pcm_24k_bytes = response.content
+        async with websockets.connect(uri, extra_headers=headers) as websocket:
+            # 2. 세션 설정: 목소리, 출력 포맷(ulaw), 그리고 마이크 감지 끄기
+            await websocket.send(json.dumps({
+                "type": "session.update",
+                "session": {
+                    "voice": voice,
+                    "output_audio_format": "g711_ulaw",
+                    "turn_detection": None # 텍스트만 보낼 거라 음성 감지(VAD) 기능 차단
+                }
+            }))
 
-        # [음질 개선 2] 고품질 리샘플링 (24kHz -> 8kHz)
-        # 1. 바이트를 16비트 정수 배열로 변환
-        pcm_24k_np = np.frombuffer(pcm_24k_bytes, dtype=np.int16)
-        
-        # 2. librosa에서 사용하기 위해 float32로 정규화
-        pcm_24k_float = pcm_24k_np.astype(np.float32) / 32768.0
-        
-        # 3. librosa를 사용해 8kHz로 리샘플링 (aliasing 방지)
-        pcm_8k_float = librosa.resample(pcm_24k_float, orig_sr=24000, target_sr=8000, res_type='kaiser_best')
-        
-        # 4. 다시 16비트 정수 배열로 변환
-        pcm_8k_np = (pcm_8k_float * 32768.0).astype(np.int16)
-        
-        # 5. 바이트로 변환
-        pcm_8k_bytes = pcm_8k_np.tobytes()
+            # 3. 번역/보정된 텍스트를 대화 기록에 추가
+            await websocket.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}]
+                }
+            }))
 
-        audio = convert_pcm_to_mulaw(pcm_8k_bytes)
+            # 4. "위 텍스트를 오디오로 읽어줘!" 라고 응답 생성 촉발
+            await websocket.send(json.dumps({
+                "type": "response.create",
+                "response": {
+                    "modalities": ["audio"] # 텍스트 답변은 빼고 오디오만 받기
+                }
+            }))
+
+            audio_chunks = []
+            
+            # 5. 스트리밍으로 들어오는 오디오 조각들 모으기
+            while True:
+                message_str = await websocket.recv()
+                message = json.loads(message_str)
+                msg_type = message.get("type")
+
+                # 서버가 보내주는 오디오 데이터 조각
+                if msg_type == "response.audio.delta":
+                    audio_data = base64.b64decode(message["delta"])
+                    audio_chunks.append(audio_data)
+                    
+                # 답변 읽기가 완전히 끝났을 때
+                elif msg_type in ["response.audio.done", "response.done"]:
+                    break
+                    
+                # 에러 발생 시 처리
+                elif msg_type == "error":
+                    print(f"OpenAI Realtime TTS Error: {message.get('error')}")
+                    return None
+
+            audio = b"".join(audio_chunks)
         
         if use_cache and audio:
             TTS_CACHE[cache_key] = audio
             
         return audio
     except Exception as e:
-        print(f"TTS Error: {e}"); return None
-
+        print(f"TTS Realtime API Error: {e}")
+        return None
 async def text_to_speech_mp3(text, voice="alloy"):
     # MP3 캐시는 미리듣기용이므로 별도 관리
     if (text, voice) in MP3_CACHE:
