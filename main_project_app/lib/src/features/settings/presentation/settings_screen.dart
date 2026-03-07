@@ -108,7 +108,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       vertical: 8,
                     ),
                   ),
-                  items: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+                  items: ['alloy', 'echo', 'shimmer']
                       .map(
                         (voice) => DropdownMenuItem(
                           value: voice,

@@ -71,11 +71,17 @@ class VoiceNotifier extends Notifier<String> {
     return 'alloy'; // Default voice
   }
 
+  static const _allowedVoices = {'alloy', 'echo', 'shimmer'};
+
   Future<void> _loadVoice() async {
     final prefs = await SharedPreferences.getInstance();
     final savedVoice = prefs.getString('voice_preset');
-    if (savedVoice != null) {
+    if (savedVoice != null && _allowedVoices.contains(savedVoice)) {
       state = savedVoice;
+    } else if (savedVoice != null && !_allowedVoices.contains(savedVoice)) {
+      // 지원 종료된 목소리(fable, nova, onyx 등)가 저장되어 있을 경우 alloy로 초기화
+      state = 'alloy';
+      await prefs.setString('voice_preset', 'alloy');
     }
   }
 
