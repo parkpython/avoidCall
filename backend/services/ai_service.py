@@ -134,7 +134,7 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
             await websocket.send(json.dumps({
                 "type": "response.create",
                 "response": {
-                    "modalities": ["audio"] # 텍스트 답변은 빼고 오디오만 받기
+                    "modalities": ["audio", "text"] # 텍스트 답변은 빼고 오디오만 받기
                 }
             }))
 
