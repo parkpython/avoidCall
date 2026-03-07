@@ -110,17 +110,25 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
 
     try:
         async with websockets.connect(uri, additional_headers=headers) as websocket:
-            # 2. 세션 설정: 목소리, 출력 포맷(ulaw), 그리고 마이크 감지 끄기
+            _TTS_INSTRUCTION = (
+                "You are a strict text-to-speech engine. "
+                "Your ONLY job is to read the user's text aloud, word-for-word, exactly as given. "
+                "Do NOT answer, explain, add greetings, or generate any content of your own. "
+                "Just speak the text verbatim."
+            )
+
+            # 2. 세션 설정: 앵무새 모드 — AI 두뇌를 끄고 입만 쓰게 고정
             await websocket.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "voice": voice,
                     "output_audio_format": "g711_ulaw",
-                    "turn_detection": None # 텍스트만 보낼 거라 음성 감지(VAD) 기능 차단
+                    "turn_detection": None,
+                    "instructions": _TTS_INSTRUCTION
                 }
             }))
 
-            # 3. 번역/보정된 텍스트를 대화 기록에 추가
+            # 3. 읽어야 할 텍스트를 대화 기록에 추가
             await websocket.send(json.dumps({
                 "type": "conversation.item.create",
                 "item": {
@@ -130,11 +138,12 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
                 }
             }))
 
-            # 4. "위 텍스트를 오디오로 읽어줘!" 라고 응답 생성 촉발
+            # 4. 응답 생성 촉발 — response 레벨에서도 동일 지시를 이중으로 고정
             await websocket.send(json.dumps({
                 "type": "response.create",
                 "response": {
-                    "modalities": ["audio", "text"] # OpenAI 규격: audio 단독 지정 불가, text 반드시 포함
+                    "modalities": ["audio", "text"], # OpenAI 규격: audio 단독 지정 불가, text 반드시 포함
+                    "instructions": _TTS_INSTRUCTION
                 }
             }))
 
