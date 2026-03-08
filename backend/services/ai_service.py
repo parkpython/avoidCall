@@ -92,32 +92,32 @@ Current Input: {text}"""}
         basic = await translate_text(text, target_lang)
         return {"translated": basic, "refined": None}
 
-async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
+_TTS_INSTRUCTION = (
+    "You are a strict text-to-speech engine. "
+    "Your ONLY job is to read the user's text aloud, word-for-word, exactly as given. "
+    "Do NOT answer, explain, add greetings, or generate any content of your own. "
+    "Just speak the text verbatim."
+)
+_TTS_URI = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
+
+async def text_to_speech_multilingual_stream(text, voice="alloy"):
     """
-    Generates speech using OpenAI's Realtime Audio API and returns it as a
-    single G.711 µ-law byte string, suitable for Twilio.
+    OpenAI Realtime API에서 오디오 청크를 받는 즉시 yield하는 async generator.
+    모든 청크를 수신한 후에는 TTS_CACHE에 조립 결과를 저장한다.
+    캐시 히트 시에는 저장된 전체 오디오를 단일 청크로 즉시 yield한다.
     """
     cache_key = (text, f"{voice}-ulaw")
-    if use_cache and cache_key in TTS_CACHE:
-        return TTS_CACHE[cache_key]
+    if cache_key in TTS_CACHE:
+        yield TTS_CACHE[cache_key]
+        return
 
-    # 1. 올바른 Realtime API 엔드포인트 & 가성비 최강 mini 모델 지정
-    uri = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "OpenAI-Beta": "realtime=v1"  # Realtime API 필수 헤더
+        "OpenAI-Beta": "realtime=v1"
     }
 
     try:
-        async with websockets.connect(uri, additional_headers=headers) as websocket:
-            _TTS_INSTRUCTION = (
-                "You are a strict text-to-speech engine. "
-                "Your ONLY job is to read the user's text aloud, word-for-word, exactly as given. "
-                "Do NOT answer, explain, add greetings, or generate any content of your own. "
-                "Just speak the text verbatim."
-            )
-
-            # 2. 세션 설정: 앵무새 모드 — AI 두뇌를 끄고 입만 쓰게 고정
+        async with websockets.connect(_TTS_URI, additional_headers=headers) as websocket:
             await websocket.send(json.dumps({
                 "type": "session.update",
                 "session": {
@@ -127,8 +127,6 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
                     "instructions": _TTS_INSTRUCTION
                 }
             }))
-
-            # 3. 읽어야 할 텍스트를 대화 기록에 추가
             await websocket.send(json.dumps({
                 "type": "conversation.item.create",
                 "item": {
@@ -137,8 +135,6 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
                     "content": [{"type": "input_text", "text": text}]
                 }
             }))
-
-            # 4. 응답 생성 촉발 — response 레벨에서도 동일 지시를 이중으로 고정
             await websocket.send(json.dumps({
                 "type": "response.create",
                 "response": {
@@ -147,37 +143,41 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
                 }
             }))
 
-            audio_chunks = []
-            
-            # 5. 스트리밍으로 들어오는 오디오 조각들 모으기
+            collected = []
             while True:
-                message_str = await websocket.recv()
-                message = json.loads(message_str)
+                message = json.loads(await websocket.recv())
                 msg_type = message.get("type")
 
-                # 서버가 보내주는 오디오 데이터 조각
                 if msg_type == "response.audio.delta":
-                    audio_data = base64.b64decode(message["delta"])
-                    audio_chunks.append(audio_data)
-                    
-                # 답변 읽기가 완전히 끝났을 때
+                    chunk = base64.b64decode(message["delta"])
+                    collected.append(chunk)
+                    yield chunk  # 청크 도착 즉시 호출자에게 전달
+
                 elif msg_type in ["response.audio.done", "response.done"]:
                     break
-                    
-                # 에러 발생 시 처리
+
                 elif msg_type == "error":
                     print(f"OpenAI Realtime TTS Error: {message.get('error')}")
-                    return None
+                    return
 
-            audio = b"".join(audio_chunks)
-        
-        if use_cache and audio:
-            TTS_CACHE[cache_key] = audio
-            
-        return audio
+        if collected:
+            TTS_CACHE[cache_key] = b"".join(collected)
+
     except Exception as e:
         print(f"TTS Realtime API Error: {e}")
-        return None
+
+
+async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
+    """
+    전체 오디오가 필요한 경우(인사말 프리패치 등) 사용.
+    내부적으로 스트리밍 제너레이터를 소비하여 단일 bytes로 반환한다.
+    """
+    cache_key = (text, f"{voice}-ulaw")
+    if use_cache and cache_key in TTS_CACHE:
+        return TTS_CACHE[cache_key]
+
+    chunks = [chunk async for chunk in text_to_speech_multilingual_stream(text, voice)]
+    return b"".join(chunks) or None
 async def text_to_speech_mp3(text, voice="alloy"):
     # MP3 캐시는 미리듣기용이므로 별도 관리
     if (text, voice) in MP3_CACHE:

@@ -118,10 +118,14 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                             "translated": korean_translation,
                             "refined": refined_translation
                         })
-                        
-                        suggestions = await ai_service.generate_reply_suggestions(refined_translation or korean_translation)
-                        if suggestions:
-                            await call_info["to_app_queue"].put({"type": "suggestions_update", "suggestions": suggestions})
+
+                        # 추천 답변 생성은 번역 전달을 블로킹하지 않도록 별도 태스크로 실행
+                        async def _send_suggestions(text_for_suggestion):
+                            suggestions = await ai_service.generate_reply_suggestions(text_for_suggestion)
+                            if suggestions:
+                                await call_info["to_app_queue"].put({"type": "suggestions_update", "suggestions": suggestions})
+
+                        asyncio.create_task(_send_suggestions(refined_translation or korean_translation))
             
             def on_deepgram_transcript_sync(self, result, **kwargs):
                 transcript = result.channel.alternatives[0].transcript
@@ -192,10 +196,11 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         "is_user": True
                     })
                     await call_info["to_app_queue"].put({"type": "user_text", "original": user_text, "translated": translated_text})
-                    audio_bytes = await ai_service.text_to_speech_multilingual(translated_text, voice_preset)
-                    if audio_bytes and call_info["stream_sid"]:
-                        payload = base64.b64encode(audio_bytes).decode('utf-8')
-                        await websocket.send_json({"event": "media", "streamSid": call_info["stream_sid"], "media": {"payload": payload}})
+                    # 오디오 청크가 도착하는 즉시 Twilio로 전송 (전체 완성까지 기다리지 않음)
+                    async for chunk in ai_service.text_to_speech_multilingual_stream(translated_text, voice_preset):
+                        if chunk and call_info["stream_sid"]:
+                            payload = base64.b64encode(chunk).decode('utf-8')
+                            await websocket.send_json({"event": "media", "streamSid": call_info["stream_sid"], "media": {"payload": payload}})
         except asyncio.CancelledError: pass
 
     await asyncio.gather(process_twilio_media(), process_app_messages())
