@@ -8,7 +8,19 @@ from config import groq_client, openai_client, OPENAI_API_KEY
 # --- Global Caches ---
 TTS_CACHE = {}
 MP3_CACHE = {}
-TRANSLATION_CACHE = {} # (text, target_lang) -> translated_text
+TRANSLATION_CACHE = {}  # (text, target_lang) -> translated_text
+
+# Realtime API와 TTS API 모두 지원하는 voice (프론트엔드와 동기화)
+_ALLOWED_VOICES = frozenset({"alloy", "echo", "shimmer"})
+
+
+def _normalize_voice(voice):
+    """유효하지 않은 voice는 'alloy'로 폴백."""
+    if not voice or not isinstance(voice, str):
+        return "alloy"
+    v = voice.strip().lower()
+    return v if v in _ALLOWED_VOICES else "alloy"
+
 
 async def translate_text(text, target_lang, use_cache=True):
     if not text or len(text.strip()) < 1: return None
@@ -106,6 +118,9 @@ async def text_to_speech_multilingual_stream(text, voice="alloy"):
     모든 청크를 수신한 후에는 TTS_CACHE에 조립 결과를 저장한다.
     캐시 히트 시에는 저장된 전체 오디오를 단일 청크로 즉시 yield한다.
     """
+    if not text or not str(text).strip():
+        return
+    voice = _normalize_voice(voice)
     cache_key = (text, f"{voice}-ulaw")
     if cache_key in TTS_CACHE:
         yield TTS_CACHE[cache_key]
@@ -157,7 +172,9 @@ async def text_to_speech_multilingual_stream(text, voice="alloy"):
                     break
 
                 elif msg_type == "error":
-                    print(f"OpenAI Realtime TTS Error: {message.get('error')}")
+                    err = message.get("error", {})
+                    err_msg = err.get("message", err) if isinstance(err, dict) else err
+                    print(f"OpenAI Realtime TTS Error: {err_msg}")
                     return
 
         if collected:
@@ -165,6 +182,7 @@ async def text_to_speech_multilingual_stream(text, voice="alloy"):
 
     except Exception as e:
         print(f"TTS Realtime API Error: {e}")
+        return
 
 
 async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
@@ -172,14 +190,22 @@ async def text_to_speech_multilingual(text, voice="alloy", use_cache=True):
     전체 오디오가 필요한 경우(인사말 프리패치 등) 사용.
     내부적으로 스트리밍 제너레이터를 소비하여 단일 bytes로 반환한다.
     """
+    if not text or not str(text).strip():
+        return None
+    voice = _normalize_voice(voice)
     cache_key = (text, f"{voice}-ulaw")
     if use_cache and cache_key in TTS_CACHE:
         return TTS_CACHE[cache_key]
 
     chunks = [chunk async for chunk in text_to_speech_multilingual_stream(text, voice)]
     return b"".join(chunks) or None
+
+
 async def text_to_speech_mp3(text, voice="alloy"):
-    # MP3 캐시는 미리듣기용이므로 별도 관리
+    """미리듣기용 MP3 오디오 생성."""
+    if not text or not str(text).strip():
+        return None
+    voice = _normalize_voice(voice)
     if (text, voice) in MP3_CACHE:
         return MP3_CACHE[(text, voice)]
 
@@ -192,7 +218,8 @@ async def text_to_speech_mp3(text, voice="alloy"):
             MP3_CACHE[(text, voice)] = audio
         return audio
     except Exception as e:
-        print(f"TTS MP3 Error: {e}"); return None
+        print(f"TTS MP3 Error: {e}")
+        return None
 
 async def generate_reply_suggestions(text):
     """GPT-4o-mini를 사용하여 짧은 한국어 답변 3개를 생성합니다."""
