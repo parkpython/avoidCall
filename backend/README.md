@@ -30,3 +30,31 @@ uvicorn main:app --reload
 ```
 
 The server will be running at `http://127.0.0.1:8000`.
+
+## Development auth admin user
+
+For local or dev-only Supabase testing without email confirmation delivery, use the trusted-only admin creation script from the repo root after installing this backend's dependencies:
+
+```bash
+python3 ../scripts/create-dev-admin-user.py
+```
+
+Environment loading behavior:
+
+- On Railway, this script reads the service environment variables directly
+- For local development, it also falls back to `backend/.env` or repo-root `.env` if present
+
+Required env values:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `DEV_ADMIN_EMAIL`
+- `DEV_ADMIN_PASSWORD`
+- optional: `DEV_ADMIN_NAME`
+- optional: `DEV_ADMIN_PLAN_ID`
+
+Railway one-off command example from the repo root:
+
+```bash
+python3 scripts/create-dev-admin-user.py
+```
