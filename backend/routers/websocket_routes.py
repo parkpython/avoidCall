@@ -64,20 +64,22 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     # --- Prefetch Greeting TTS ---
     greeting_text = GREETINGS.get(target_lang, GREETINGS["English"])
     user_greeting = call_info.get("greeting_text")
-    
-    async def prepare_greeting():
+
+    async def resolve_greeting_text():
         final_text = greeting_text
         if user_greeting:
             if call_info.get("ai_mediation", True):
-                translated = await ai_service.translate_text(user_greeting, target_lang)
-                if translated: final_text = translated
+                translated = await ai_service.translate_text(
+                    user_greeting,
+                    target_lang,
+                )
+                if translated:
+                    final_text = translated
             else:
                 final_text = user_greeting
-        
-        audio = await ai_service.text_to_speech_multilingual(final_text, voice_preset)
-        return final_text, audio
+        return final_text
 
-    greeting_task = asyncio.create_task(prepare_greeting())
+    greeting_text_task = asyncio.create_task(resolve_greeting_text())
 
     # --- Async Deepgram Setup ---
     deepgram_socket = config.deepgram_client.listen.live.v("1")
@@ -152,15 +154,25 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     call_session_service.set_stream_sid(call_id, data['start']['streamSid'])
                     if db_id: asyncio.create_task(db_service.update_call_status(db_id, "connected"))
 
-                    final_greeting_text, greeting_audio = await greeting_task
+                    final_greeting_text = await greeting_text_task
                     await call_runtime_service.send_to_app(
                         call_info,
                         {"type": "translation", "original": "System", "translated": f"(Automated Greeting: {final_greeting_text})"},
                     )
 
-                    if greeting_audio:
-                        payload = base64.b64encode(greeting_audio).decode('utf-8')
-                        await websocket.send_json({"event": "media", "streamSid": call_info["stream_sid"], "media": {"payload": payload}})
+                    async for chunk in ai_service.text_to_speech_multilingual_stream(
+                        final_greeting_text,
+                        voice_preset,
+                    ):
+                        if chunk and call_info["stream_sid"]:
+                            payload = base64.b64encode(chunk).decode('utf-8')
+                            await websocket.send_json(
+                                {
+                                    "event": "media",
+                                    "streamSid": call_info["stream_sid"],
+                                    "media": {"payload": payload},
+                                }
+                            )
                 elif data['event'] == 'media':
                     if not deepgram_ready.is_set(): await deepgram_ready.wait()
                     deepgram_socket.send(base64.b64decode(data['media']['payload']))
