@@ -1,5 +1,6 @@
 import json
 import base64
+import audioop
 import websockets
 from config import groq_client, openai_client, OPENAI_API_KEY
 # The 'convert_pcm_to_mulaw' and related libraries are no longer needed
@@ -113,77 +114,54 @@ _TTS_INSTRUCTION = (
     "Speak only the provided text verbatim, with clear and natural phone-call delivery."
 )
 _TTS_URI = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
+_TTS_CHUNK_SIZE = 1600
+
+
+def _pcm24khz_to_mulaw8khz(pcm_audio: bytes) -> bytes:
+    """Convert 24kHz 16-bit PCM from OpenAI speech API into 8kHz μ-law for Twilio."""
+    downsampled, _ = audioop.ratecv(pcm_audio, 2, 1, 24000, 8000, None)
+    return audioop.lin2ulaw(downsampled, 2)
+
+
+async def _render_mulaw_tts(text, voice="alloy"):
+    if not text or not str(text).strip():
+        return b""
+
+    voice = _normalize_voice(voice)
+    cache_key = (text, f"{voice}-ulaw")
+    if cache_key in TTS_CACHE:
+        return TTS_CACHE[cache_key]
+
+    response = await openai_client.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice=voice,
+        input=text,
+        instructions=_TTS_INSTRUCTION,
+        response_format="pcm",
+    )
+
+    pcm_audio = response.content
+    if not pcm_audio:
+        return b""
+
+    mulaw_audio = _pcm24khz_to_mulaw8khz(pcm_audio)
+    TTS_CACHE[cache_key] = mulaw_audio
+    return mulaw_audio
 
 async def text_to_speech_multilingual_stream(text, voice="alloy"):
     """
-    OpenAI Realtime API에서 오디오 청크를 받는 즉시 yield하는 async generator.
-    모든 청크를 수신한 후에는 TTS_CACHE에 조립 결과를 저장한다.
-    캐시 히트 시에는 저장된 전체 오디오를 단일 청크로 즉시 yield한다.
+    Deterministic TTS path for Twilio playback.
+    Generate μ-law audio once, cache it, then yield fixed-size chunks.
     """
     if not text or not str(text).strip():
         return
     voice = _normalize_voice(voice)
-    cache_key = (text, f"{voice}-ulaw")
-    if cache_key in TTS_CACHE:
-        yield TTS_CACHE[cache_key]
-        return
-
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "OpenAI-Beta": "realtime=v1"
-    }
-
     try:
-        async with websockets.connect(_TTS_URI, additional_headers=headers) as websocket:
-            await websocket.send(json.dumps({
-                "type": "session.update",
-                "session": {
-                    "voice": voice,
-                    "output_audio_format": "g711_ulaw",
-                    "turn_detection": None,
-                    "instructions": _TTS_INSTRUCTION
-                }
-            }))
-            await websocket.send(json.dumps({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}]
-                }
-            }))
-            await websocket.send(json.dumps({
-                "type": "response.create",
-                "response": {
-                    "modalities": ["audio", "text"], # OpenAI 규격: audio 단독 지정 불가, text 반드시 포함
-                    "instructions": _TTS_INSTRUCTION
-                }
-            }))
-
-            collected = []
-            while True:
-                message = json.loads(await websocket.recv())
-                msg_type = message.get("type")
-
-                if msg_type == "response.audio.delta":
-                    chunk = base64.b64decode(message["delta"])
-                    collected.append(chunk)
-                    yield chunk  # 청크 도착 즉시 호출자에게 전달
-
-                elif msg_type in ["response.audio.done", "response.done"]:
-                    break
-
-                elif msg_type == "error":
-                    err = message.get("error", {})
-                    err_msg = err.get("message", err) if isinstance(err, dict) else err
-                    print(f"OpenAI Realtime TTS Error: {err_msg}")
-                    return
-
-        if collected:
-            TTS_CACHE[cache_key] = b"".join(collected)
-
+        audio = await _render_mulaw_tts(text, voice)
+        for index in range(0, len(audio), _TTS_CHUNK_SIZE):
+            yield audio[index:index + _TTS_CHUNK_SIZE]
     except Exception as e:
-        print(f"TTS Realtime API Error: {e}")
+        print(f"TTS Speech API Error: {e}")
         return
 
 
