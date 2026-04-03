@@ -10,6 +10,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
+backend/.env
+main_project_app/.env
 venv/
 .venv/
 env/

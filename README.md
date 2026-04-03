@@ -119,6 +119,19 @@ avoid_call/
     flutter run
     ```
 
+### Supabase Auth Custom SMTP
+
+Custom SMTP for hosted Supabase is an operational configuration, not an app-code feature toggle.
+
+- Auth email flows currently used in this repo:
+  - signup confirmation via `signUp(...)`
+  - password reset via `resetPasswordForEmail(...)`
+- Magic link / OTP email login is not currently implemented in app code
+- Setup guide:
+  - [docs/supabase_custom_smtp.md](/Users/parkjonghyeok/avoid_call/docs/supabase_custom_smtp.md)
+- Use `.env.example` files as placeholders only
+- Never commit SMTP credentials into git
+
 ---
 
 ## 📱 Key Features
