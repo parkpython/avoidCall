@@ -34,6 +34,7 @@ class InCallScreen extends ConsumerStatefulWidget {
 }
 
 class _InCallScreenState extends ConsumerState<InCallScreen> {
+  static const int _maxVisibleSuggestions = 6;
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -199,7 +200,9 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
 
   void _updateSuggestions() {
     setState(() {
-      _currentSuggestions = _getSuggestions(_textController.text);
+      _currentSuggestions = _getSuggestions(
+        _textController.text,
+      ).take(_maxVisibleSuggestions).toList();
     });
   }
 
@@ -377,140 +380,146 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
           _isCallConnected ? 'In Call (${widget.language})' : 'Dialing...',
         ),
       ),
-      body: !_isCallConnected
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: !_isCallConnected
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Ringing...',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Waiting for answer...'),
+                  ],
+                ),
+              )
+            : Column(
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Ringing...',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Waiting for answer...'),
-                ],
-              ),
-            )
-          : Column(
-              children: [
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final message = _messages[index];
-                      return ListTile(
-                        title: Text(
-                          message.original,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              message.translated,
-                              style: TextStyle(
-                                color: Colors.black.withValues(alpha: 0.6),
-                              ),
-                            ),
-                            // [UX 개선] 보정된 텍스트가 있으면 표시
-                            if (message.refined != null &&
-                                message.refined != message.translated)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4.0),
-                                child: Text(
-                                  '✨ AI 추측: ${message.refined}',
-                                  style: TextStyle(
-                                    color: Theme.of(context).primaryColor,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        final message = _messages[index];
+                        return ListTile(
+                          title: Text(
+                            message.original,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                message.translated,
+                                style: TextStyle(
+                                  color: Colors.black.withValues(alpha: 0.6),
                                 ),
                               ),
-                          ],
-                        ),
-                        tileColor: message.isFromUser
-                            ? Colors.blue[50]
-                            : Colors.grey[200],
-                        isThreeLine: true,
-                        leading: Icon(
-                          message.isFromUser
-                              ? Icons.person
-                              : Icons.phone_in_talk,
-                          color: Theme.of(context).primaryColor,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(height: 1.0),
-                _buildSuggestionBar(),
-                Container(
-                  decoration: BoxDecoration(color: Theme.of(context).cardColor),
-                  child: _buildTextComposer(),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: ElevatedButton(
-                    onPressed: () {
-                      // Always allow user to navigate back.
-                      GoRouter.of(context).pop();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
+                              // [UX 개선] 보정된 텍스트가 있으면 표시
+                              if (message.refined != null &&
+                                  message.refined != message.translated)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: Text(
+                                    '✨ AI 추측: ${message.refined}',
+                                    style: TextStyle(
+                                      color: Theme.of(context).primaryColor,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          tileColor: message.isFromUser
+                              ? Colors.blue[50]
+                              : Colors.grey[200],
+                          isThreeLine: true,
+                          leading: Icon(
+                            message.isFromUser
+                                ? Icons.person
+                                : Icons.phone_in_talk,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        );
+                      },
                     ),
-                    child: const Text('End Call'),
                   ),
-                ),
-              ],
-            ),
+                  _buildSuggestionBar(),
+                  Material(
+                    color: Theme.of(context).cardColor,
+                    elevation: 6,
+                    child: _buildTextComposer(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: ElevatedButton(
+                      onPressed: () {
+                        // Always allow user to navigate back.
+                        GoRouter.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                      ),
+                      child: const Text('End Call'),
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 
   Widget _buildSuggestionBar() {
-    if (!_isSuggestionVisible || _currentSuggestions.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Container(
-      height: 50,
-      color: Colors.grey[100],
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-        scrollDirection: Axis.horizontal,
-        itemCount: _currentSuggestions.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8.0),
-        itemBuilder: (context, index) {
-          final suggestion = _currentSuggestions[index];
-          return ActionChip(
-            // [UI 개선] 칩 배경색을 테마 색상의 연한 톤으로 변경
-            backgroundColor: Theme.of(
-              context,
-            ).primaryColor.withValues(alpha: 0.1),
-            // 테두리 제거 및 둥근 모서리 적용
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-              side: BorderSide.none,
-            ),
-            label: Text(
-              suggestion,
-              // 글자색은 테마 색상으로 통일
-              style: TextStyle(
-                color: Theme.of(context).primaryColor,
-                fontWeight: FontWeight.w600,
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutBack,
+      alignment: Alignment.topCenter,
+      child: (!_isSuggestionVisible || _currentSuggestions.isEmpty)
+          ? const SizedBox(width: double.infinity, height: 0)
+          : Container(
+              height: 72.0,
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50, // Subtle background contrast
+                border: Border(
+                  top: BorderSide(color: Colors.grey.shade300, width: 1.0),
+                  bottom: BorderSide(color: Colors.grey.shade300, width: 1.0),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    offset: const Offset(0, -4),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: _currentSuggestions.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(width: 10.0),
+                itemBuilder: (context, index) {
+                  final suggestion = _currentSuggestions[index];
+                  return _SuggestionChip(
+                    suggestion: suggestion,
+                    onTap: () {
+                      _textController.text = suggestion;
+                      _textController.selection = TextSelection.collapsed(
+                        offset: suggestion.length,
+                      );
+                      _updateSuggestions();
+                    },
+                  );
+                },
               ),
             ),
-            onPressed: () {
-              _textController.text = suggestion;
-              _textController.selection = TextSelection.collapsed(
-                offset: suggestion.length,
-              );
-              _updateSuggestions(); // 텍스트 변경 반영
-            },
-          );
-        },
-      ),
     );
   }
 
@@ -518,27 +527,37 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
     return IconTheme(
       data: IconThemeData(color: Theme.of(context).colorScheme.secondary),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
         child: Row(
           children: [
             Flexible(
-              child: TextField(
-                controller: _textController,
-                focusNode: _focusNode,
-                onSubmitted: _handleSubmitted,
-                onTap: () {
-                  setState(() {
-                    _isSuggestionVisible = true;
-                  });
-                  _updateSuggestions();
-                },
-                onChanged: (text) {
-                  setState(() {
-                    _isSuggestionVisible = true;
-                  });
-                },
-                decoration: const InputDecoration.collapsed(
-                  hintText: 'Send a message',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: TextField(
+                  controller: _textController,
+                  focusNode: _focusNode,
+                  minLines: 1,
+                  maxLines: 4,
+                  onSubmitted: _handleSubmitted,
+                  onTap: () {
+                    setState(() {
+                      _isSuggestionVisible = true;
+                    });
+                    _updateSuggestions();
+                  },
+                  onChanged: (text) {
+                    setState(() {
+                      _isSuggestionVisible = true;
+                    });
+                  },
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Send a message',
+                  ),
                 ),
               ),
             ),
@@ -550,6 +569,63 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({required this.suggestion, required this.onTap});
+
+  final String suggestion;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(30),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 8.0),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF4A90E2), Color(0xFF50E3C2)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4A90E2).withValues(alpha: 0.25),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.bolt, size: 18, color: Colors.white),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: Text(
+                  suggestion,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

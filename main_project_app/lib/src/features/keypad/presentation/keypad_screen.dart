@@ -123,37 +123,16 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   // [테스트 모드] 백엔드 시뮬레이션 호출
   Future<void> _makeTestCall() async {
     final language = ref.read(languageProvider);
-    final backendClient = ref.read(backendClientProvider);
-    final deviceId = ref.read(deviceIdProvider);
+    _showFeedback('Opening local test call UI...');
 
-    _showFeedback('Starting Backend Simulation...');
-
-    try {
-      final result = await backendClient.startCall(
-        userId: deviceId,
-        targetNumber: 'TEST',
-        language: language,
-        greetingText: '',
-        aiMediation: _aiMediation,
-        voicePreset: 'alloy',
-      );
-
-      if (result.isSuccess) {
-        if (mounted) {
-          context.push(
-            '/in-call-session',
-            extra: {'call_id': result.callId!, 'language': language},
-          );
-        }
-      } else {
-        _showFeedback(
-          'Test failed: ${result.message ?? 'Unknown error'}',
-          isError: true,
-        );
-      }
-    } catch (e) {
-      _showFeedback('Connection error: $e', isError: true);
+    if (!mounted) {
+      return;
     }
+
+    context.push(
+      '/in-call-session',
+      extra: {'call_id': 'test_mode', 'language': language},
+    );
   }
 
   void _showFeedback(String message, {bool isError = false}) {
