@@ -1,12 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
+import 'package:main_project_app/src/core/network/backend_client.dart';
+import 'package:main_project_app/src/core/providers/device_id_provider.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class KeypadScreen extends ConsumerStatefulWidget {
   const KeypadScreen({super.key});
@@ -16,10 +13,6 @@ class KeypadScreen extends ConsumerStatefulWidget {
 }
 
 class _KeypadScreenState extends ConsumerState<KeypadScreen> {
-  // --- IMPORTANT: CONFIGURE YOUR BACKEND URL ---
-  final String _backendUrl = dotenv.env['API_URL'] ?? '';
-  // -----------------------------------------
-
   bool _aiMediation = true;
   String _selectedCountryCode = '+82';
   final List<Map<String, String>> _countryCodes = [
@@ -70,7 +63,8 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final language = ref.read(languageProvider);
     final greeting = ref.read(greetingProvider);
     final voice = ref.read(voiceProvider);
-    String deviceId = ref.read(deviceIdProvider); // 로컬 디바이스 ID 사용
+    final backendClient = ref.read(backendClientProvider);
+    final deviceId = ref.read(deviceIdProvider);
 
     // [Fix] 앱 실행 직후 ID가 로드되지 않았을 경우 방어 로직
     if (deviceId.isEmpty) {
@@ -82,7 +76,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     }
 
     // [Debug Fix] 릴리즈 모드에서 .env가 로드되지 않았을 경우 사용자에게 알림
-    if (_backendUrl.isEmpty) {
+    if (!backendClient.isConfigured) {
       _showFeedback(
         'Error: API_URL missing. Check .env & pubspec.yaml',
         isError: true,
@@ -95,43 +89,31 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     _showFeedback('Initiating AI-mediated call in $language...');
 
     try {
-      var url = _backendUrl;
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://$url';
-      }
-
-      final response = await http.post(
-        Uri.parse('$url/call'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_id': deviceId, // [수정] 로컬 디바이스 ID 전송
-          'target_number': formattedNumber,
-          'language': language,
-          'greeting_text': greeting,
-          'ai_mediation': _aiMediation,
-          'voice_preset': voice,
-        }),
+      final result = await backendClient.startCall(
+        userId: deviceId,
+        targetNumber: formattedNumber,
+        language: language,
+        greetingText: greeting,
+        aiMediation: _aiMediation,
+        voicePreset: voice,
       );
 
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body['status'] == 'success') {
-          final callId = body['call_id'];
-          _showFeedback('Call initiated successfully! SID: $callId');
+      if (!mounted) return;
 
-          // Navigate to the in-call screen using push, so we can pop back to it.
-          context.push(
-            '/in-call-session',
-            extra: {'call_id': callId, 'language': language},
-          );
-        } else {
-          _showFeedback(
-            body['message'] ?? 'Failed to initiate call.',
-            isError: true,
-          );
-        }
+      if (result.isSuccess) {
+        final callId = result.callId!;
+        _showFeedback('Call initiated successfully! SID: $callId');
+        context.push(
+          '/in-call-session',
+          extra: {'call_id': callId, 'language': language},
+        );
+      } else if (result.statusCode == 200) {
+        _showFeedback(
+          result.message ?? 'Failed to initiate call.',
+          isError: true,
+        );
       } else {
-        _showFeedback('Server error: ${response.statusCode}', isError: true);
+        _showFeedback('Server error: ${result.statusCode}', isError: true);
       }
     } catch (e) {
       _showFeedback('Failed to connect to the backend: $e', isError: true);
@@ -141,43 +123,33 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   // [테스트 모드] 백엔드 시뮬레이션 호출
   Future<void> _makeTestCall() async {
     final language = ref.read(languageProvider);
+    final backendClient = ref.read(backendClientProvider);
     final deviceId = ref.read(deviceIdProvider);
 
     _showFeedback('Starting Backend Simulation...');
 
     try {
-      var url = _backendUrl;
-      if (!url.startsWith('http')) {
-        url = 'https://$url';
-      }
-
-      final response = await http.post(
-        Uri.parse('$url/call'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_id': deviceId,
-          'target_number': 'TEST', // 백엔드에서 테스트 모드로 인식
-          'language': language,
-          'greeting_text': '',
-          'ai_mediation': _aiMediation,
-          'voice_preset': 'alloy',
-        }),
+      final result = await backendClient.startCall(
+        userId: deviceId,
+        targetNumber: 'TEST',
+        language: language,
+        greetingText: '',
+        aiMediation: _aiMediation,
+        voicePreset: 'alloy',
       );
 
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body['status'] == 'success') {
-          final callId = body['call_id'];
-          // 실제 통화 세션 화면으로 이동 (call_id를 가지고 웹소켓 연결 시도)
-          if (mounted) {
-            context.push(
-              '/in-call-session',
-              extra: {'call_id': callId, 'language': language},
-            );
-          }
-        } else {
-          _showFeedback('Test failed: ${body['message']}', isError: true);
+      if (result.isSuccess) {
+        if (mounted) {
+          context.push(
+            '/in-call-session',
+            extra: {'call_id': result.callId!, 'language': language},
+          );
         }
+      } else {
+        _showFeedback(
+          'Test failed: ${result.message ?? 'Unknown error'}',
+          isError: true,
+        );
       }
     } catch (e) {
       _showFeedback('Connection error: $e', isError: true);
@@ -203,7 +175,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         context.go('/home');
       },
@@ -252,7 +224,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
                           vertical: 8.0,
                         ),
                         child: DropdownButtonFormField<String>(
-                          value: _selectedCountryCode,
+                          initialValue: _selectedCountryCode,
                           decoration: const InputDecoration(
                             labelText: 'Country Code',
                             border: OutlineInputBorder(),

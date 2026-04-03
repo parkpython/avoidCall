@@ -6,8 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 import config
 from config import GREETINGS
-from services import ai_service, db_service
-from state_manager import active_calls
+from services import ai_service, call_runtime_service, call_session_service, db_service
 
 from deepgram import LiveOptions, LiveTranscriptionEvents
 
@@ -17,11 +16,10 @@ router = APIRouter()
 @router.websocket("/ws/app/{call_id}")
 async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
     await websocket.accept()
-    if call_id not in active_calls:
+    call_info = call_session_service.get_session(call_id)
+    if call_info is None:
         await websocket.close(code=1011, reason="Call ID not found.")
         return
-
-    call_info = active_calls[call_id]
     
     async def listen_to_app():
         try:
@@ -29,15 +27,15 @@ async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
                 msg = await websocket.receive_text()
                 data = json.loads(msg)
                 if data.get("event") == "frontend_text":
-                    await call_info["from_app_queue"].put(data["text"])
+                    await call_runtime_service.queue_user_text(call_info, data["text"])
         except WebSocketDisconnect:
             print(f"[App:{call_id}] App disconnected.")
-            await call_info["from_app_queue"].put("HANG_UP")
+            await call_runtime_service.queue_user_text(call_info, "HANG_UP")
 
     async def send_to_app():
         try:
             while True:
-                message = await call_info["to_app_queue"].get()
+                message = await call_runtime_service.next_app_message(call_info)
                 if message == "HANG_UP": break
                 await websocket.send_json(message)
         except WebSocketDisconnect:
@@ -51,13 +49,12 @@ async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
 @router.websocket("/ws/twilio/{call_id}")
 async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     await websocket.accept()
-    if call_id not in active_calls:
+    call_info = call_session_service.get_session(call_id)
+    if call_info is None:
         await websocket.close(code=1011, reason="Call ID not found.")
         return
-
-    call_info = active_calls[call_id]
     
-    await call_info["to_app_queue"].put({"type": "call_connected"})
+    await call_runtime_service.send_to_app(call_info, {"type": "call_connected"})
     stt_lang = call_info["stt_lang"]
     target_lang = call_info["target_lang"]
     voice_preset = call_info.get("voice_preset", "alloy")
@@ -103,16 +100,15 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
 
                     if korean_translation:
                         final_text = refined_translation or korean_translation
-                        call_info["conversation_history"].append(f"Other: {final_text}")
-                        if len(call_info["conversation_history"]) > 5: call_info["conversation_history"].pop(0)
+                        call_runtime_service.append_conversation_history(call_info, "Other", final_text)
+                        call_runtime_service.append_log(
+                            call_info,
+                            original=transcript,
+                            translated=korean_translation,
+                            is_user=False,
+                        )
 
-                        call_info["full_logs"].append({
-                            "original": transcript,
-                            "translated": korean_translation,
-                            "is_user": False
-                        })
-
-                        await call_info["to_app_queue"].put({
+                        await call_runtime_service.send_to_app(call_info, {
                             "type": "translation",
                             "original": transcript,
                             "translated": korean_translation,
@@ -123,7 +119,10 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                         async def _send_suggestions(text_for_suggestion):
                             suggestions = await ai_service.generate_reply_suggestions(text_for_suggestion)
                             if suggestions:
-                                await call_info["to_app_queue"].put({"type": "suggestions_update", "suggestions": suggestions})
+                                await call_runtime_service.send_to_app(
+                                    call_info,
+                                    {"type": "suggestions_update", "suggestions": suggestions},
+                                )
 
                         asyncio.create_task(_send_suggestions(refined_translation or korean_translation))
             
@@ -150,11 +149,14 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                 msg = await websocket.receive_text()
                 data = json.loads(msg)
                 if data['event'] == 'start':
-                    call_info["stream_sid"] = data['start']['streamSid']
+                    call_session_service.set_stream_sid(call_id, data['start']['streamSid'])
                     if db_id: asyncio.create_task(db_service.update_call_status(db_id, "connected"))
 
                     final_greeting_text, greeting_audio = await greeting_task
-                    await call_info["to_app_queue"].put({"type": "translation", "original": "System", "translated": f"(Automated Greeting: {final_greeting_text})"})
+                    await call_runtime_service.send_to_app(
+                        call_info,
+                        {"type": "translation", "original": "System", "translated": f"(Automated Greeting: {final_greeting_text})"},
+                    )
 
                     if greeting_audio:
                         payload = base64.b64encode(greeting_audio).decode('utf-8')
@@ -167,21 +169,20 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
         except WebSocketDisconnect:
             print(f"[Twilio:{call_id}] Twilio disconnected.")
         finally:
-            await call_info["to_app_queue"].put({"type": "call_ended"})
-            await call_info["to_app_queue"].put("HANG_UP")
-            await call_info["from_app_queue"].put("HANG_UP")
+            await call_runtime_service.send_to_app(call_info, {"type": "call_ended"})
+            await call_runtime_service.send_hang_up(call_info)
             if db_id:
                 end_time = datetime.now(timezone.utc).isoformat()
                 await db_service.save_conversation_log(db_id, call_info["full_logs"])
                 await db_service.update_call_status(db_id, "completed", end_time)
             try: deepgram_socket.finish()
             except: pass
-            if call_id in active_calls: del active_calls[call_id]
+            call_session_service.delete_session(call_id)
 
     async def process_app_messages():
         try:
             while True:
-                user_text = await call_info["from_app_queue"].get()
+                user_text = await call_runtime_service.next_user_text(call_info)
                 if user_text == "HANG_UP":
                     if call_info.get("twilio_call_sid"):
                         try: config.twilio_client.calls(call_info["twilio_call_sid"]).update(status="completed")
@@ -190,12 +191,16 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                 
                 translated_text = await ai_service.translate_text(user_text, target_lang) if call_info.get("ai_mediation", True) else user_text
                 if translated_text:
-                    call_info["full_logs"].append({
-                        "original": user_text,
-                        "translated": translated_text,
-                        "is_user": True
-                    })
-                    await call_info["to_app_queue"].put({"type": "user_text", "original": user_text, "translated": translated_text})
+                    call_runtime_service.append_log(
+                        call_info,
+                        original=user_text,
+                        translated=translated_text,
+                        is_user=True,
+                    )
+                    await call_runtime_service.send_to_app(
+                        call_info,
+                        {"type": "user_text", "original": user_text, "translated": translated_text},
+                    )
                     # 오디오 청크가 도착하는 즉시 Twilio로 전송 (전체 완성까지 기다리지 않음)
                     async for chunk in ai_service.text_to_speech_multilingual_stream(translated_text, voice_preset):
                         if chunk and call_info["stream_sid"]:

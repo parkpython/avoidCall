@@ -1,14 +1,10 @@
 import uuid
-import time
-import asyncio
 from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from models import CallRequest, PrefetchRequest, PreviewRequest
 import config
-from config import LANGUAGE_MAP
-from services import ai_service, db_service
-from state_manager import active_calls
+from services import ai_service, call_session_service, db_service
 
 from twilio.twiml.voice_response import VoiceResponse, Connect
 
@@ -49,7 +45,6 @@ async def call(request: CallRequest):
         return {"status": "error", "message": "SERVER_DOMAIN is not configured."}
     
     call_id = str(uuid.uuid4())
-    lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
     
     # [TEST MODE]
     if request.target_number == "TEST":
@@ -60,25 +55,16 @@ async def call(request: CallRequest):
     # [Supabase] 1. 통화 시작 기록
     db_id = await db_service.create_call_log(request.user_id, request.target_number, request.language)
 
-    # Set up communication queues
-    active_calls[call_id] = {
-        "user_id": request.user_id,
-        "target_number": request.target_number,
-        "start_time": time.time(),
-        "to_app_queue": asyncio.Queue(),
-        "from_app_queue": asyncio.Queue(),
-        "language": request.language,
-        "stt_lang": lang_settings["stt"],
-        "target_lang": lang_settings["target"],
-        "stream_sid": None,
-        "greeting_text": request.greeting_text,
-        "ai_mediation": request.ai_mediation,
-        "voice_preset": request.voice_preset,
-        "twilio_call_sid": None,
-        "conversation_history": [],
-        "full_logs": [],
-        "db_id": db_id,
-    }
+    call_session_service.create_session(
+        call_id=call_id,
+        user_id=request.user_id,
+        target_number=request.target_number,
+        language=request.language,
+        greeting_text=request.greeting_text,
+        ai_mediation=request.ai_mediation,
+        voice_preset=request.voice_preset,
+        db_id=db_id,
+    )
     
     try:
         twilio_call = config.twilio_client.calls.create(
@@ -87,16 +73,16 @@ async def call(request: CallRequest):
             url=f"https://{config.SERVER_DOMAIN}/voice/{call_id}",
             method="POST"
         )
-        active_calls[call_id]["twilio_call_sid"] = twilio_call.sid
+        call_session_service.set_twilio_call_sid(call_id, twilio_call.sid)
         return {"status": "success", "call_id": call_id}
     except Exception as e:
-        if call_id in active_calls: del active_calls[call_id]
+        call_session_service.delete_session(call_id)
         return {"status": "error", "message": str(e)}
 
 @router.post("/voice/{call_id}")
 async def voice(call_id: str):
     response = VoiceResponse()
-    if call_id in active_calls:
+    if call_session_service.has_session(call_id):
         connect = Connect()
         connect.stream(url=f"wss://{config.SERVER_DOMAIN}/ws/twilio/{call_id}")
         response.append(connect)

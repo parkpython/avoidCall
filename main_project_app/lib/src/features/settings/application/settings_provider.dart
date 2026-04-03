@@ -1,37 +1,7 @@
-import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
+import 'package:main_project_app/src/core/network/backend_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-/// 0. A Notifier to manage a persistent Device ID (User ID for backend)
-class DeviceIdNotifier extends Notifier<String> {
-  @override
-  String build() {
-    _loadDeviceId();
-    return '';
-  }
-
-  Future<void> _loadDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? id = prefs.getString('device_id');
-    if (id == null) {
-      // [Security Fix] 예측 가능한 DateTime 대신 Random.secure()를 사용하여 충돌 및 추측 방지
-      final random = Random.secure();
-      final values = List<int>.generate(16, (i) => random.nextInt(255));
-      // 간단한 UUID v4 형태 흉내 (또는 uuid 패키지 사용 권장)
-      id = base64UrlEncode(values);
-      await prefs.setString('device_id', id);
-    }
-    state = id;
-  }
-}
-
-final deviceIdProvider = NotifierProvider<DeviceIdNotifier, String>(() {
-  return DeviceIdNotifier();
-});
 
 /// 1. A Notifier class that holds and manages the state (the language string).
 class LanguageNotifier extends Notifier<String> {
@@ -137,27 +107,18 @@ class GreetingNotifier extends Notifier<String> {
   Future<void> prefetch(String text) async {
     final language = ref.read(languageProvider);
     final voice = ref.read(voiceProvider);
-    final backendUrl = dotenv.env['API_URL'] ?? '';
-    if (backendUrl.isEmpty) return;
+    final backendClient = ref.read(backendClientProvider);
+    if (!backendClient.isConfigured) return;
 
     try {
-      var url = backendUrl;
-      if (!url.startsWith('http')) {
-        url = 'https://$url';
-      }
-
-      await http.post(
-        Uri.parse('$url/prefetch'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'text': text,
-          'language': language,
-          'voice_preset': voice,
-        }),
+      await backendClient.prefetchGreeting(
+        text: text,
+        language: language,
+        voice: voice,
       );
     } catch (e) {
       // 프리패치 실패는 사용자에게 알리지 않고 조용히 넘어감 (로그만 출력)
-      print('Greeting prefetch failed: $e');
+      debugPrint('Greeting prefetch failed: $e');
     }
   }
 }
@@ -201,30 +162,23 @@ final customPhrasesProvider =
     });
 
 /// 6. 목소리 미리듣기 서비스
-final voicePreviewProvider = Provider((ref) => VoicePreviewService());
+final voicePreviewProvider = Provider((ref) {
+  final backendClient = ref.watch(backendClientProvider);
+  return VoicePreviewService(backendClient);
+});
 
 class VoicePreviewService {
+  VoicePreviewService(this._backendClient);
+
+  final BackendClient _backendClient;
+
   Future<Uint8List?> fetchPreview(String text, String voice) async {
-    final backendUrl = dotenv.env['API_URL'] ?? '';
-    if (backendUrl.isEmpty) return null;
+    if (!_backendClient.isConfigured) return null;
 
     try {
-      var url = backendUrl;
-      if (!url.startsWith('http')) {
-        url = 'https://$url';
-      }
-
-      final response = await http.post(
-        Uri.parse('$url/preview-voice'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'text': text, 'voice_preset': voice}),
-      );
-
-      if (response.statusCode == 200) {
-        return response.bodyBytes;
-      }
+      return await _backendClient.fetchVoicePreview(text: text, voice: voice);
     } catch (e) {
-      print('Voice preview failed: $e');
+      debugPrint('Voice preview failed: $e');
     }
     return null;
   }

@@ -1,9 +1,9 @@
 import 'dart:async'; // <--- 이 줄을 추가하세요
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:main_project_app/src/core/network/backend_client.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -34,10 +34,6 @@ class InCallScreen extends ConsumerStatefulWidget {
 }
 
 class _InCallScreenState extends ConsumerState<InCallScreen> {
-  // --- IMPORTANT: CONFIGURE YOUR BACKEND URL ---
-  final String _backendUrl = dotenv.env['API_URL'] ?? '';
-  // -----------------------------------------
-
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -121,15 +117,15 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
       if (numbers.length == 1) {
         final n = numbers[0];
         // 숫자가 하나면 시간이나 인원으로 추론
-        suggestions.add('오늘 저녁 ${n}시에 예약하고 싶어요.');
-        suggestions.add('${n}명 예약 가능한가요?');
-        if (hasStore) suggestions.add('가게에 ${n}시쯤 도착할 것 같아요.');
+        suggestions.add('오늘 저녁 $n시에 예약하고 싶어요.');
+        suggestions.add('$n명 예약 가능한가요?');
+        if (hasStore) suggestions.add('가게에 $n시쯤 도착할 것 같아요.');
       } else if (numbers.length >= 2) {
         final n1 = numbers[0];
         final n2 = numbers[1];
         // 숫자가 두 개면 [시간, 인원] 순서로 추론 (예: "6 4" -> 6시 4명)
-        suggestions.add('오늘 ${n1}시에 ${n2}명 예약하고 싶어요.');
-        suggestions.add('내일 ${n1}시, ${n2}명 자리 있나요?');
+        suggestions.add('오늘 $n1시에 $n2명 예약하고 싶어요.');
+        suggestions.add('내일 $n1시, $n2명 자리 있나요?');
       }
     }
 
@@ -219,25 +215,9 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
     });
   }
 
-  // --- WebSocket Logic ---
-  String _getWebSocketUrl(String baseUrl, String callId) {
-    String wsScheme;
-    String host;
-    if (baseUrl.startsWith('https://')) {
-      wsScheme = 'wss://';
-      host = baseUrl.substring(8);
-    } else if (baseUrl.startsWith('http://')) {
-      wsScheme = 'ws://';
-      host = baseUrl.substring(7);
-    } else {
-      wsScheme = 'wss://';
-      host = baseUrl;
-    }
-    return '$wsScheme$host/ws/app/$callId';
-  }
-
   void _connectWebSocket() {
-    final wsUrl = _getWebSocketUrl(_backendUrl, widget.callId);
+    final backendClient = ref.read(backendClientProvider);
+    final wsUrl = backendClient.buildWebSocketUrl('/ws/app/${widget.callId}');
     debugPrint('Connecting to WebSocket: $wsUrl');
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
@@ -432,7 +412,7 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
                             Text(
                               message.translated,
                               style: TextStyle(
-                                color: Colors.black.withOpacity(0.6),
+                                color: Colors.black.withValues(alpha: 0.6),
                               ),
                             ),
                             // [UX 개선] 보정된 텍스트가 있으면 표시
@@ -505,7 +485,9 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
           final suggestion = _currentSuggestions[index];
           return ActionChip(
             // [UI 개선] 칩 배경색을 테마 색상의 연한 톤으로 변경
-            backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+            backgroundColor: Theme.of(
+              context,
+            ).primaryColor.withValues(alpha: 0.1),
             // 테두리 제거 및 둥근 모서리 적용
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
