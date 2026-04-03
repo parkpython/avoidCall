@@ -1,18 +1,17 @@
-import json
-import base64
 import audioop
-import websockets
-from config import groq_client, openai_client, OPENAI_API_KEY
-# The 'convert_pcm_to_mulaw' and related libraries are no longer needed
-# as OpenAI's Realtime API can output µ-law directly.
+import json
+import re
+from config import groq_client, openai_client
 
 # --- Global Caches ---
 TTS_CACHE = {}
 MP3_CACHE = {}
 TRANSLATION_CACHE = {}  # (text, target_lang) -> translated_text
 
-# Realtime API와 TTS API 모두 지원하는 voice (프론트엔드와 동기화)
+# 통화 경로에서 현재 UI와 동기화된 voice만 허용
 _ALLOWED_VOICES = frozenset({"alloy", "echo", "shimmer"})
+_PHONE_TTS_SPEED = 1.18
+_TTS_CHUNK_SIZE = 1600
 
 
 def _normalize_voice(voice):
@@ -113,8 +112,45 @@ _TTS_INSTRUCTION = (
     "Do not omit, rewrite, soften, or intensify any part of the text. "
     "Speak only the provided text verbatim, with clear and natural phone-call delivery."
 )
-_TTS_URI = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
-_TTS_CHUNK_SIZE = 1600
+
+
+def _normalize_phone_tts_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    cleaned = cleaned.replace("...", ". ")
+    cleaned = re.sub(r"[!?]{2,}", "!", cleaned)
+    cleaned = re.sub(r"\.{2,}", ".", cleaned)
+    cleaned = re.sub(r"[,]{2,}", ",", cleaned)
+    cleaned = re.sub(r"([가-힣A-Za-z0-9])([/|])([가-힣A-Za-z0-9])", r"\1, \3", cleaned)
+    return cleaned
+
+
+def _segment_phone_tts_text(text: str) -> list[str]:
+    normalized = _normalize_phone_tts_text(text)
+    if not normalized:
+        return []
+
+    parts = re.split(r"(?<=[.!?。！？])\s+|(?<=,)\s+", normalized)
+    segments: list[str] = []
+    current = ""
+
+    for raw_part in parts:
+        part = raw_part.strip()
+        if not part:
+            continue
+
+        candidate = part if not current else f"{current} {part}"
+        if len(candidate) <= 90:
+            current = candidate
+            continue
+
+        if current:
+            segments.append(current)
+        current = part
+
+    if current:
+        segments.append(current)
+
+    return segments or [normalized]
 
 
 def _pcm24khz_to_mulaw8khz(pcm_audio: bytes) -> bytes:
@@ -138,6 +174,7 @@ async def _render_mulaw_tts(text, voice="alloy"):
         input=text,
         instructions=_TTS_INSTRUCTION,
         response_format="pcm",
+        speed=_PHONE_TTS_SPEED,
     )
 
     pcm_audio = response.content
@@ -157,9 +194,10 @@ async def text_to_speech_multilingual_stream(text, voice="alloy"):
         return
     voice = _normalize_voice(voice)
     try:
-        audio = await _render_mulaw_tts(text, voice)
-        for index in range(0, len(audio), _TTS_CHUNK_SIZE):
-            yield audio[index:index + _TTS_CHUNK_SIZE]
+        for segment in _segment_phone_tts_text(str(text)):
+            audio = await _render_mulaw_tts(segment, voice)
+            for index in range(0, len(audio), _TTS_CHUNK_SIZE):
+                yield audio[index:index + _TTS_CHUNK_SIZE]
     except Exception as e:
         print(f"TTS Speech API Error: {e}")
         return
