@@ -105,10 +105,12 @@ Current Input: {text}"""}
         return {"translated": basic, "refined": None}
 
 _TTS_INSTRUCTION = (
-    "You are a strict text-to-speech engine. "
-    "Your ONLY job is to read the user's text aloud, word-for-word, exactly as given. "
-    "Do NOT answer, explain, add greetings, or generate any content of your own. "
-    "Just speak the text verbatim."
+    "You are a text-to-speech engine for relaying the user's written message during a phone call. "
+    "Your only task is to speak the provided text exactly as written. "
+    "Do not answer, interpret, summarize, paraphrase, translate, or generate any original content. "
+    "Do not add greetings, filler words, reactions, confirmations, or emotional interjections unless they are explicitly present in the text. "
+    "Do not omit, rewrite, soften, or intensify any part of the text. "
+    "Speak only the provided text verbatim, with clear and natural phone-call delivery."
 )
 _TTS_URI = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview"
 
