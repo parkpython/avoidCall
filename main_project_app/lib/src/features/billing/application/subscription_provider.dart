@@ -1,0 +1,19 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:main_project_app/src/core/providers/supabase_provider.dart';
+import 'package:main_project_app/src/features/billing/application/billing_service.dart';
+
+final billingServiceProvider = Provider<BillingService>((ref) {
+  return BillingService(ref.watch(supabaseProvider));
+});
+
+final currentSubscriptionProvider = FutureProvider<SubscriptionSnapshot?>((
+  ref,
+) async {
+  final billingService = ref.watch(billingServiceProvider);
+  return billingService.fetchCurrentSubscription();
+});
+
+final hasActiveSubscriptionProvider = FutureProvider<bool>((ref) async {
+  final billingService = ref.watch(billingServiceProvider);
+  return billingService.hasActiveSubscription();
+});

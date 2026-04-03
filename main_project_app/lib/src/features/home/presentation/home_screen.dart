@@ -1,69 +1,160 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:main_project_app/src/features/billing/application/subscription_provider.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final subscription = ref.watch(currentSubscriptionProvider);
+
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text(
-          "Avoid Call",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Call Dashboard'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings, color: Colors.black),
-            onPressed: () {
-              context.go('/settings'); // 설정 탭으로 이동
-            },
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.go('/settings'),
           ),
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "안녕하세요,\nAI 통화 비서입니다.",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  height: 1.4,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF111111), Color(0xFF334B7B)],
+                  ),
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Run the conversation without speaking directly.',
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        height: 1.05,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Open the keypad, type your message, and let the relay voice handle the line while replies come back as text.',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
+              subscription.when(
+                data: (value) {
+                  if (value == null) {
+                    return const SizedBox.shrink();
+                  }
 
-              // 메인 액션 카드 (전화 걸기)
-              _buildActionCard(
-                context,
-                title: "전화 걸기",
-                subtitle: "AI 통역/중재 통화 시작하기",
-                icon: Icons.dialpad,
-                color: Colors.blueAccent,
-                onTap: () {
-                  context.go('/keypad'); // 키패드 탭으로 이동
+                  final periodEnd = value.currentPeriodEnd;
+                  final label = periodEnd == null
+                      ? 'Billing active'
+                      : 'Billing active until ${periodEnd.year}.${periodEnd.month.toString().padLeft(2, '0')}.${periodEnd.day.toString().padLeft(2, '0')}';
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5EE),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.verified_rounded,
+                            color: Color(0xFF1D7B61),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '${value.planId.toUpperCase()} · $label',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => context.go('/pricing'),
+                            child: const Text('Manage billing'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 },
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
               ),
-
-              const SizedBox(height: 20),
-
-              // 서브 액션 카드 (통화 기록 등)
               _buildActionCard(
                 context,
-                title: "통화 기록",
-                subtitle: "이전 대화 내용 다시보기",
-                icon: Icons.history,
-                color: Colors.grey.shade800,
-                onTap: () {
-                  // TODO: 통화 기록 화면으로 이동
-                },
+                title: 'Start a relayed call',
+                subtitle: 'Open keypad and begin a mediated phone call.',
+                icon: Icons.dialpad,
+                color: const Color(0xFF2E6CE6),
+                onTap: () => context.go('/keypad'),
+              ),
+              const SizedBox(height: 20),
+              _buildActionCard(
+                context,
+                title: 'Review settings',
+                subtitle: 'Adjust relay voice, language, and preview options.',
+                icon: Icons.tune_rounded,
+                color: const Color(0xFF1D7B61),
+                onTap: () => context.go('/settings'),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F1E8),
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'How it works',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const _StepRow(
+                      index: '01',
+                      text: 'Type a message inside the app.',
+                    ),
+                    const _StepRow(
+                      index: '02',
+                      text: 'The relay voice speaks it into the phone call.',
+                    ),
+                    const _StepRow(
+                      index: '03',
+                      text: 'Incoming speech returns as readable chat.',
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -90,7 +181,7 @@ class HomeScreen extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.3),
+              color: color.withValues(alpha: 0.3),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -101,7 +192,7 @@ class HomeScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: Colors.white, size: 28),
@@ -123,7 +214,7 @@ class HomeScreen extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 14,
                     ),
                   ),
@@ -133,6 +224,33 @@ class HomeScreen extends StatelessWidget {
             const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StepRow extends StatelessWidget {
+  const _StepRow({required this.index, required this.text});
+
+  final String index;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Text(
+            index,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF886B3F),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text)),
+        ],
       ),
     );
   }
