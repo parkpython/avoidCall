@@ -6,11 +6,16 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
   return Supabase.instance.client.auth.onAuthStateChange;
 });
 
+/// 현재 세션을 반환하는 Provider (로그인 안 되어 있으면 null)
+final sessionProvider = Provider<Session?>((ref) {
+  final authState = ref.watch(authStateProvider);
+  return authState.value?.session ?? Supabase.instance.client.auth.currentSession;
+});
+
 /// 현재 로그인된 사용자 객체를 반환하는 Provider (로그인 안 되어 있으면 null)
 final userProvider = Provider<User?>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return authState.value?.session?.user ??
-      Supabase.instance.client.auth.currentUser;
+  final session = ref.watch(sessionProvider);
+  return session?.user ?? Supabase.instance.client.auth.currentUser;
 });
 
 /// 로그인 여부를 boolean으로 반환하는 Provider

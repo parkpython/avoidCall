@@ -8,6 +8,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:main_project_app/src/features/billing/application/apple_iap_service.dart';
 import 'package:main_project_app/src/features/billing/application/billing_service.dart';
 import 'package:main_project_app/src/features/billing/application/subscription_provider.dart';
+import 'package:main_project_app/src/features/incall/presentation/auth_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -345,7 +346,7 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentSubscription = ref.watch(currentSubscriptionProvider);
-    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUser = ref.watch(userProvider);
     final activePlanId = currentSubscription.value?.planId;
     final helperText = _useAppleIap
         ? 'iOS에서는 Xcode StoreKit Testing으로 로컬 구매/복원/entitlement sync를 테스트합니다.'

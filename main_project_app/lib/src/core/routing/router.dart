@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:main_project_app/src/features/billing/application/billing_service.dart';
 import 'package:main_project_app/src/features/billing/application/subscription_provider.dart';
+import 'package:main_project_app/src/features/incall/presentation/auth_provider.dart';
 
 // Screens
 import 'package:main_project_app/src/core/routing/scaffold_with_nav_bar.dart';
@@ -19,6 +20,7 @@ import 'package:main_project_app/src/features/settings/presentation/settings_scr
 
 final routerProvider = Provider<GoRouter>((ref) {
   final billingService = ref.read(billingServiceProvider);
+  final session = ref.watch(sessionProvider);
   final authRefresh = GoRouterRefreshStream(
     Supabase.instance.client.auth.onAuthStateChange,
   );
@@ -28,7 +30,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     debugLogDiagnostics: true,
     refreshListenable: authRefresh,
     redirect: (context, state) async {
-      final loggedIn = Supabase.instance.client.auth.currentSession != null;
+      final loggedIn = session != null;
       final location = state.matchedLocation;
       const publicRoutes = {'/', '/login', '/pricing'};
 
