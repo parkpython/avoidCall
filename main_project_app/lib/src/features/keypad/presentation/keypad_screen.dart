@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:main_project_app/src/core/network/backend_client.dart';
 import 'package:main_project_app/src/core/providers/device_id_provider.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class KeypadScreen extends ConsumerStatefulWidget {
   const KeypadScreen({super.key});
@@ -64,10 +65,12 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final greeting = ref.read(greetingProvider);
     final voice = ref.read(voiceProvider);
     final backendClient = ref.read(backendClientProvider);
-    final deviceId = ref.read(deviceIdProvider);
+    final fallbackDeviceId = ref.read(deviceIdProvider);
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    final callerId = currentUser?.id ?? fallbackDeviceId;
 
     // [Fix] 앱 실행 직후 ID가 로드되지 않았을 경우 방어 로직
-    if (deviceId.isEmpty) {
+    if (callerId.isEmpty) {
       _showFeedback(
         'Device ID is initializing. Please try again.',
         isError: true,
@@ -90,7 +93,7 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
 
     try {
       final result = await backendClient.startCall(
-        userId: deviceId,
+        userId: callerId,
         targetNumber: formattedNumber,
         language: language,
         greetingText: greeting,

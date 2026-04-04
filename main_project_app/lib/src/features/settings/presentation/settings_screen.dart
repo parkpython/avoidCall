@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -56,6 +57,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       debugPrint('Preview error: $e');
     } finally {
       if (mounted) setState(() => _isPlaying = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('로그아웃에 실패했습니다: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -211,6 +226,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 },
               );
             }).toList(),
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _signOut,
+              icon: const Icon(Icons.logout),
+              label: const Text('Log out'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+                side: BorderSide(color: Colors.red.shade200),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
         ],
       ),
