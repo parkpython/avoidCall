@@ -172,15 +172,15 @@ class VoicePreviewService {
 
   final BackendClient _backendClient;
 
-  Future<Uint8List?> fetchPreview(String text, String voice) async {
+  Future<VoicePreviewAudio?> fetchPreview(String text, String voice) async {
     if (!_backendClient.isConfigured) return null;
 
     try {
       return await _backendClient.fetchVoicePreview(text: text, voice: voice);
     } catch (e) {
       debugPrint('Voice preview failed: $e');
+      rethrow;
     }
-    return null;
   }
 }
 

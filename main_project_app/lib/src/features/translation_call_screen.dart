@@ -29,7 +29,7 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
   // --- IMPORTANT: CONFIGURE YOUR BACKEND URL ---
   // Use your computer's IP address, not localhost.
   // Example: final String _backendUrl = '192.168.1.100:8000';
-  final String _backendUrl = 'YOUR_COMPUTER_IP:8000'; 
+  final String _backendUrl = 'YOUR_COMPUTER_IP:8000';
   // -----------------------------------------
 
   // State variables
@@ -37,7 +37,7 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
   final _messageController = TextEditingController();
   String _selectedLanguage = 'Japanese';
   final List<String> _languages = ['Japanese', 'English', 'Chinese', 'Spanish'];
-  
+
   final List<Message> _conversation = [];
   WebSocketChannel? _channel;
   String _callStatus = 'Idle'; // Idle, Calling, Connected, Error
@@ -70,9 +70,7 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Real-time Translation Call'),
-      ),
+      appBar: AppBar(title: const Text('Real-time Translation Call')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -106,18 +104,17 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
         const SizedBox(width: 8),
         DropdownButton<String>(
           value: _selectedLanguage,
-          onChanged: isCalling ? null : (String? newValue) {
-            if (newValue != null) {
-              setState(() {
-                _selectedLanguage = newValue;
-              });
-            }
-          },
+          onChanged: isCalling
+              ? null
+              : (String? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      _selectedLanguage = newValue;
+                    });
+                  }
+                },
           items: _languages.map<DropdownMenuItem<String>>((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
-            );
+            return DropdownMenuItem<String>(value: value, child: Text(value));
           }).toList(),
         ),
         const SizedBox(width: 8),
@@ -139,11 +136,20 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
         itemBuilder: (context, index) {
           final message = _conversation[index];
           return ListTile(
-            title: Text(message.original, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(message.translated, style: TextStyle(color: Colors.black.withOpacity(0.6))),
+            title: Text(
+              message.original,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(
+              message.translated,
+              style: TextStyle(color: Colors.black.withValues(alpha: 0.6)),
+            ),
             tileColor: message.isFromUser ? Colors.blue[50] : Colors.grey[200],
             isThreeLine: true,
-            leading: Icon(message.isFromUser ? Icons.person : Icons.phone_in_talk, color: Theme.of(context).primaryColor),
+            leading: Icon(
+              message.isFromUser ? Icons.person : Icons.phone_in_talk,
+              color: Theme.of(context).primaryColor,
+            ),
           );
         },
       ),
@@ -188,19 +194,25 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
       wsScheme = 'ws://';
       host = baseUrl;
     }
-    
+
     return '$wsScheme$host/ws?lang=$lang';
   }
-  
+
   Future<void> _makeCall() async {
     if (_backendUrl.contains('YOUR_COMPUTER_IP')) {
       _showError('Please configure your backend URL in the source code.');
       return;
     }
-    
+
     setState(() {
       _callStatus = 'Calling';
-      _conversation.add(Message(original: 'Initiating call...', translated: '', isFromUser: true));
+      _conversation.add(
+        Message(
+          original: 'Initiating call...',
+          translated: '',
+          isFromUser: true,
+        ),
+      );
     });
 
     final formattedNumber = _formatNumberToE164(_phoneNumberController.text);
@@ -241,11 +253,17 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
   void _connectWebSocket() {
     final wsUrl = _getWebSocketUrl(_backendUrl, _selectedLanguage);
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-    
+
     setState(() {
       _callStatus = 'Connected';
       _conversation.removeLast(); // Remove 'Initiating call...'
-      _conversation.add(Message(original: 'Connected!', translated: 'Waiting for audio...', isFromUser: false));
+      _conversation.add(
+        Message(
+          original: 'Connected!',
+          translated: 'Waiting for audio...',
+          isFromUser: false,
+        ),
+      );
     });
 
     _channel!.stream.listen(
@@ -253,31 +271,37 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
         final data = jsonDecode(message);
         if (data['type'] == 'translation') {
           setState(() {
-            _conversation.add(Message(
-              original: data['original'],
-              translated: data['translated'],
-              isFromUser: false,
-              language: data['language'],
-            ));
+            _conversation.add(
+              Message(
+                original: data['original'],
+                translated: data['translated'],
+                isFromUser: false,
+                language: data['language'],
+              ),
+            );
           });
         } else if (data['type'] == 'user_text') {
           // Update the 'Translating...' message with the actual translation
           setState(() {
-             final lastMsgIndex = _conversation.lastIndexWhere((m) => m.isFromUser && m.original == data['original']);
-             if(lastMsgIndex != -1) {
-                _conversation[lastMsgIndex] = Message(
-                  original: data['original'],
-                  translated: data['translated'],
-                  isFromUser: true,
-                );
-             }
+            final lastMsgIndex = _conversation.lastIndexWhere(
+              (m) => m.isFromUser && m.original == data['original'],
+            );
+            if (lastMsgIndex != -1) {
+              _conversation[lastMsgIndex] = Message(
+                original: data['original'],
+                translated: data['translated'],
+                isFromUser: true,
+              );
+            }
           });
         }
       },
       onDone: () {
         setState(() {
           _callStatus = 'Idle';
-          _conversation.add(Message(original: 'Call ended.', translated: '', isFromUser: false));
+          _conversation.add(
+            Message(original: 'Call ended.', translated: '', isFromUser: false),
+          );
         });
       },
       onError: (error) {
@@ -293,17 +317,12 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
     final text = _messageController.text;
     // Add to conversation for immediate feedback
     setState(() {
-      _conversation.add(Message(
-        original: text,
-        translated: '(Sending...)',
-        isFromUser: true,
-      ));
+      _conversation.add(
+        Message(original: text, translated: '(Sending...)', isFromUser: true),
+      );
     });
 
-    _channel!.sink.add(jsonEncode({
-      'event': 'frontend_text',
-      'text': text,
-    }));
+    _channel!.sink.add(jsonEncode({'event': 'frontend_text', 'text': text}));
     _messageController.clear();
   }
 
@@ -317,10 +336,7 @@ class _TranslationCallScreenState extends State<TranslationCallScreen> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 

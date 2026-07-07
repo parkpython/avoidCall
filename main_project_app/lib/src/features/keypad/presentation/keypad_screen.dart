@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:main_project_app/src/core/config/app_config.dart';
 import 'package:main_project_app/src/core/network/backend_client.dart';
 import 'package:main_project_app/src/core/providers/device_id_provider.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
@@ -65,14 +66,18 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     final greeting = ref.read(greetingProvider);
     final voice = ref.read(voiceProvider);
     final backendClient = ref.read(backendClientProvider);
+    final localTestMode = ref.read(localTestModeProvider);
     final fallbackDeviceId = ref.read(deviceIdProvider);
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    final callerId = currentUser?.id ?? fallbackDeviceId;
+    final currentSession = localTestMode
+        ? null
+        : Supabase.instance.client.auth.currentSession;
+    final callerId = localTestMode ? fallbackDeviceId : currentSession?.user.id;
 
-    // [Fix] 앱 실행 직후 ID가 로드되지 않았을 경우 방어 로직
-    if (callerId.isEmpty) {
+    if (callerId == null || callerId.isEmpty) {
       _showFeedback(
-        'Device ID is initializing. Please try again.',
+        localTestMode
+            ? 'Local device ID is initializing. Please try again.'
+            : 'Session expired. Please sign in again.',
         isError: true,
       );
       return;
@@ -88,8 +93,16 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
     }
 
     final formattedNumber = _formatNumberToE164(_phoneController.text);
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(formattedNumber)) {
+      _showFeedback('Enter a valid phone number.', isError: true);
+      return;
+    }
 
-    _showFeedback('Initiating AI-mediated call in $language...');
+    _showFeedback(
+      localTestMode
+          ? 'Starting local call in $language...'
+          : 'Initiating AI-mediated call in $language...',
+    );
 
     try {
       final result = await backendClient.startCall(
@@ -105,7 +118,12 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
 
       if (result.isSuccess) {
         final callId = result.callId!;
-        _showFeedback('Call initiated successfully! SID: $callId');
+        final modeLabel = switch (result.mode) {
+          'local_outbound' => 'Local outbound call',
+          'local_test' => 'Local simulated call',
+          _ => 'Call',
+        };
+        _showFeedback('$modeLabel initiated successfully! SID: $callId');
         context.push(
           '/in-call-session',
           extra: {'call_id': callId, 'language': language},
@@ -285,14 +303,20 @@ class _KeypadScreenState extends ConsumerState<KeypadScreen> {
                         child: FloatingActionButton(
                           onPressed:
                               _makeCall, // Changed from navigation to function call
-                          child: const Icon(Icons.call),
+                          tooltip: ref.watch(localTestModeProvider)
+                              ? 'Start local simulated call'
+                              : 'Start call',
+                          child: Icon(
+                            ref.watch(localTestModeProvider)
+                                ? Icons.science_outlined
+                                : Icons.call,
+                          ),
                         ),
                       ),
-                      // [테스트용] 서버 연결 없이 UI 테스트 진입 버튼
                       TextButton.icon(
-                        onPressed: _makeTestCall, // 백엔드 시뮬레이션 연결
+                        onPressed: _makeTestCall,
                         icon: const Icon(Icons.bug_report),
-                        label: const Text('Backend Test Call'),
+                        label: const Text('UI Test Call'),
                       ),
                     ],
                   ),

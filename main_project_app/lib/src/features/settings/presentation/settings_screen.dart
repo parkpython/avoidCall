@@ -34,27 +34,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _playPreview() async {
-    final greeting = ref.read(greetingProvider);
+    final greeting = _greetingController.text.trim();
     final voice = ref.read(voiceProvider);
 
     if (greeting.isEmpty) return;
 
+    await ref.read(greetingProvider.notifier).setGreeting(greeting);
+
     setState(() => _isPlaying = true);
 
     try {
-      final bytes = await ref
+      final preview = await ref
           .read(voicePreviewProvider)
           .fetchPreview(greeting, voice);
 
       if (!mounted) return;
 
-      if (bytes != null) {
+      if (preview != null) {
         await _audioPlayer.stop();
-        // [수정] mimeType을 명시하여 macOS/iOS에서 포맷 인식 오류 방지
-        await _audioPlayer.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
+        await _audioPlayer.play(
+          BytesSource(preview.bytes, mimeType: preview.mimeType),
+        );
       }
     } catch (e) {
       debugPrint('Preview error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isPlaying = false);
     }
@@ -79,6 +87,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final currentLanguage = ref.watch(languageProvider);
     final currentVoice = ref.watch(voiceProvider);
     final customPhrases = ref.watch(customPhrasesProvider);
+    final currentGreeting = ref.watch(greetingProvider);
+
+    if (_greetingController.text != currentGreeting) {
+      _greetingController.value = TextEditingValue(
+        text: currentGreeting,
+        selection: TextSelection.collapsed(offset: currentGreeting.length),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -91,7 +107,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: currentLanguage,
+            initialValue: currentLanguage,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -115,7 +131,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: currentVoice,
+                  initialValue: currentVoice,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(
@@ -172,7 +188,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               hintText: 'Enter your greeting message here...',
             ),
             onChanged: (value) {
-              // 입력할 때마다 바로 저장 (간단한 구현)
               ref.read(greetingProvider.notifier).setGreeting(value);
             },
           ),

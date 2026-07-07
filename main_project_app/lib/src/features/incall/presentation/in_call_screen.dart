@@ -1,5 +1,6 @@
 import 'dart:async'; // <--- 이 줄을 추가하세요
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -221,14 +222,19 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
   void _connectWebSocket() {
     final backendClient = ref.read(backendClientProvider);
     final wsUrl = backendClient.buildWebSocketUrl('/ws/app/${widget.callId}');
-    debugPrint('Connecting to WebSocket: $wsUrl');
-    _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    final protocols = backendClient.buildAuthenticatedWebSocketProtocols();
+    if (kDebugMode) {
+      debugPrint('Connecting to authenticated call WebSocket.');
+    }
+    _channel = WebSocketChannel.connect(Uri.parse(wsUrl), protocols: protocols);
 
     _channel!.stream.listen(
       (message) {
-        debugPrint('<<< WebSocket Received: $message');
         if (mounted) {
           final data = jsonDecode(message);
+          if (kDebugMode) {
+            debugPrint('<<< WebSocket event: ${data['type']}');
+          }
 
           // 연결 이벤트나 메시지가 오면 통화 연결로 간주하고 타이머 시작
           if (data['type'] == 'call_connected' ||
@@ -284,7 +290,9 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
         }
       },
       onDone: () {
-        debugPrint('!!! WebSocket connection closed (onDone).');
+        if (kDebugMode) {
+          debugPrint('!!! WebSocket connection closed (onDone).');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -296,13 +304,15 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
         }
       },
       onError: (error) {
-        debugPrint('### WebSocket Error: $error');
+        if (kDebugMode) {
+          debugPrint('### WebSocket Error: $error');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Call Error: $error'),
+            const SnackBar(
+              content: Text('Call Error: WebSocket connection failed.'),
               backgroundColor: Colors.red,
-              duration: const Duration(seconds: 5),
+              duration: Duration(seconds: 5),
             ),
           );
           GoRouter.of(context).pop();
@@ -368,7 +378,9 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
     }
 
     final message = jsonEncode({'event': 'frontend_text', 'text': text});
-    debugPrint('>>> WebSocket Sending: $message');
+    if (kDebugMode) {
+      debugPrint('>>> WebSocket sending frontend_text.');
+    }
     _channel!.sink.add(message);
   }
 
@@ -586,45 +598,32 @@ class _SuggestionChip extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 8.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF4A90E2), Color(0xFF50E3C2)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            color: Theme.of(context).primaryColor.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Theme.of(context).primaryColor.withValues(alpha: 0.15),
+              width: 1,
             ),
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF4A90E2).withValues(alpha: 0.25),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-              ),
-            ],
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.bolt, size: 18, color: Colors.white),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Text(
-                  suggestion,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    letterSpacing: 0.3,
-                  ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: Text(
+                suggestion,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Theme.of(context).primaryColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),

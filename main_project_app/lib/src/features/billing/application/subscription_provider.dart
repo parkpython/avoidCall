@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:main_project_app/src/core/config/app_config.dart';
 import 'package:main_project_app/src/core/providers/supabase_provider.dart';
 import 'package:main_project_app/src/features/billing/application/apple_iap_service.dart';
 import 'package:main_project_app/src/features/billing/application/billing_service.dart';
@@ -15,6 +16,9 @@ final appleIapServiceProvider = Provider<AppleIapService>((ref) {
 final currentSubscriptionProvider = FutureProvider<SubscriptionSnapshot?>((
   ref,
 ) async {
+  if (ref.watch(localTestModeProvider)) {
+    return null;
+  }
   final session = ref.watch(sessionProvider);
   if (session == null) {
     return null;
@@ -24,6 +28,9 @@ final currentSubscriptionProvider = FutureProvider<SubscriptionSnapshot?>((
 });
 
 final hasActiveSubscriptionProvider = FutureProvider<bool>((ref) async {
+  if (ref.watch(localTestModeProvider)) {
+    return true;
+  }
   final session = ref.watch(sessionProvider);
   if (session == null) {
     return false;

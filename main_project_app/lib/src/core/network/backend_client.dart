@@ -4,9 +4,10 @@ import 'dart:typed_data';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final backendClientProvider = Provider<BackendClient>((ref) {
-  return BackendClient(baseUrl: dotenv.env['API_URL'] ?? '');
+  return BackendClient(baseUrl: resolveApiUrl());
 });
 
 class BackendClient {
@@ -17,16 +18,33 @@ class BackendClient {
   bool get isConfigured => _baseUrl.isNotEmpty;
 
   Uri buildUri(String path) {
+    if (_baseUrl.startsWith('/')) {
+      return Uri.parse('${_baseUrl.replaceFirst(RegExp(r'/$'), '')}$path');
+    }
+
     final normalizedBaseUrl = _normalizeHttpBaseUrl(_baseUrl);
     return Uri.parse('$normalizedBaseUrl$path');
   }
 
   String buildWebSocketUrl(String path) {
-    final normalizedBaseUrl = _normalizeHttpBaseUrl(_baseUrl);
-    if (normalizedBaseUrl.startsWith('https://')) {
-      return 'wss://${normalizedBaseUrl.substring(8)}$path';
+    if (_baseUrl.startsWith('/')) {
+      throw const BackendClientException(
+        'WebSocket is unavailable for relative demo API_URL.',
+      );
     }
-    return 'ws://${normalizedBaseUrl.substring(7)}$path';
+
+    final normalizedBaseUrl = _normalizeHttpBaseUrl(_baseUrl);
+    return normalizedBaseUrl.startsWith('https://')
+        ? 'wss://${normalizedBaseUrl.substring(8)}$path'
+        : 'ws://${normalizedBaseUrl.substring(7)}$path';
+  }
+
+  Iterable<String>? buildAuthenticatedWebSocketProtocols() {
+    final accessToken = _accessToken;
+    if (accessToken == null) {
+      return null;
+    }
+    return ['supabase-auth.$accessToken'];
   }
 
   Future<http.Response> postJson(
@@ -35,9 +53,25 @@ class BackendClient {
   }) {
     return http.post(
       buildUri(path),
-      headers: const {'Content-Type': 'application/json'},
+      headers: _jsonHeaders(),
       body: jsonEncode(body),
     );
+  }
+
+  String? get _accessToken {
+    try {
+      return Supabase.instance.client.auth.currentSession?.accessToken;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Map<String, String> _jsonHeaders() {
+    final accessToken = _accessToken;
+    return {
+      'Content-Type': 'application/json',
+      if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+    };
   }
 
   Future<CallStartResult> startCall({
@@ -63,7 +97,7 @@ class BackendClient {
     return CallStartResult.fromResponse(response);
   }
 
-  Future<Uint8List?> fetchVoicePreview({
+  Future<VoicePreviewAudio?> fetchVoicePreview({
     required String text,
     required String voice,
   }) async {
@@ -72,9 +106,15 @@ class BackendClient {
       body: {'text': text, 'voice_preset': voice},
     );
     if (response.statusCode == 200) {
-      return response.bodyBytes;
+      return VoicePreviewAudio(
+        bytes: response.bodyBytes,
+        mimeType: response.headers['content-type'] ?? 'audio/mpeg',
+      );
     }
-    return null;
+    final body = CallStartResult._tryDecodeJson(response.body);
+    final message =
+        body?['detail'] ?? body?['message'] ?? 'Voice preview failed.';
+    throw BackendClientException(message.toString());
   }
 
   Future<void> prefetchGreeting({
@@ -89,17 +129,26 @@ class BackendClient {
   }
 }
 
+class VoicePreviewAudio {
+  const VoicePreviewAudio({required this.bytes, required this.mimeType});
+
+  final Uint8List bytes;
+  final String mimeType;
+}
+
 class CallStartResult {
   CallStartResult({
     required this.statusCode,
     required this.status,
     this.callId,
+    this.mode,
     this.message,
   });
 
   final int statusCode;
   final String? status;
   final String? callId;
+  final String? mode;
   final String? message;
 
   bool get isSuccess =>
@@ -111,6 +160,7 @@ class CallStartResult {
       statusCode: response.statusCode,
       status: body?['status'] as String?,
       callId: body?['call_id'] as String?,
+      mode: body?['mode'] as String?,
       message: body?['message'] as String?,
     );
   }
@@ -138,6 +188,12 @@ String _normalizeHttpBaseUrl(String rawBaseUrl) {
   }
 
   return 'https://$rawBaseUrl';
+}
+
+String resolveApiUrl() {
+  const dartDefineApiUrl = String.fromEnvironment('API_URL');
+  final envApiUrl = dotenv.env['API_URL'] ?? '';
+  return dartDefineApiUrl.isNotEmpty ? dartDefineApiUrl : envApiUrl;
 }
 
 class BackendClientException implements Exception {
