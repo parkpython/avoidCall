@@ -51,6 +51,32 @@ def has_session(call_id: str) -> bool:
     return call_id in active_calls
 
 
+def active_session_count() -> int:
+    return len(active_calls)
+
+
+def active_session_count_for_user(user_id: str) -> int:
+    return sum(
+        1
+        for session in active_calls.values()
+        if session.get("user_id") == user_id
+    )
+
+
+def delete_expired_sessions(max_age_seconds: int) -> None:
+    if max_age_seconds <= 0:
+        return
+
+    now = time.time()
+    expired_call_ids = [
+        call_id
+        for call_id, session in active_calls.items()
+        if now - float(session.get("start_time", now)) > max_age_seconds
+    ]
+    for call_id in expired_call_ids:
+        delete_session(call_id)
+
+
 def delete_session(call_id: str) -> None:
     active_calls.pop(call_id, None)
 
@@ -65,4 +91,3 @@ def set_stream_sid(call_id: str, stream_sid: str) -> None:
     session = get_session(call_id)
     if session is not None:
         session["stream_sid"] = stream_sid
-

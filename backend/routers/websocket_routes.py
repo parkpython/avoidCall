@@ -2,12 +2,19 @@ import json
 import asyncio
 import base64
 import re
+import time
 from datetime import datetime, timezone
+from binascii import Error as Base64Error
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 import config
 from config import GREETINGS
-from security import auth_is_disabled_for_local_dev, require_authenticated_websocket
+from security import (
+    auth_is_disabled_for_local_dev,
+    client_identity_from_websocket,
+    enforce_rate_limit,
+    require_authenticated_websocket,
+)
 from services import ai_service, call_runtime_service, call_session_service, db_service
 
 from deepgram import LiveOptions, LiveTranscriptionEvents
@@ -43,6 +50,36 @@ def _local_responder_text(user_text: str) -> tuple[str, str, list[str]]:
         "로컬 테스트 응답: 잘 들었습니다. 계속 말씀해주세요.",
         ["네, 알겠습니다.", "잠시만 기다려주세요.", "다시 한번 말씀해주시겠어요?"],
     )
+
+
+async def _close_for_rate_limit(websocket: WebSocket) -> None:
+    await websocket.close(code=1008, reason="Too many requests.")
+
+
+async def _enforce_ws_ip_rate_limit(websocket: WebSocket, action: str) -> bool:
+    if config.WS_CONNECTS_PER_IP_PER_MINUTE <= 0:
+        return True
+    try:
+        enforce_rate_limit(
+            identity=client_identity_from_websocket(websocket),
+            action=action,
+            limit=config.WS_CONNECTS_PER_IP_PER_MINUTE,
+            window_seconds=60,
+        )
+    except Exception:
+        await _close_for_rate_limit(websocket)
+        return False
+    return True
+
+
+async def _complete_twilio_call(call_info: dict) -> None:
+    twilio_call_sid = call_info.get("twilio_call_sid")
+    if not twilio_call_sid:
+        return
+    try:
+        config.twilio_client.calls(twilio_call_sid).update(status="completed")
+    except Exception:
+        pass
 
 
 async def _run_local_call_simulator(call_id: str, call_info: dict) -> None:
@@ -116,6 +153,9 @@ async def _run_local_call_simulator(call_id: str, call_info: dict) -> None:
 # 1. WebSocket for the Frontend App
 @router.websocket("/ws/app/{call_id}")
 async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
+    if not await _enforce_ws_ip_rate_limit(websocket, "ws-app-connect"):
+        return
+
     current_user = await require_authenticated_websocket(websocket)
     if current_user is None:
         return
@@ -148,6 +188,25 @@ async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
                     await call_runtime_service.queue_user_text(call_info, "HANG_UP")
                     break
                 if data.get("event") == "frontend_text":
+                    if config.WS_APP_MESSAGES_PER_USER_PER_MINUTE > 0:
+                        try:
+                            enforce_rate_limit(
+                                identity=current_user.user_id,
+                                action="ws-app-message",
+                                limit=config.WS_APP_MESSAGES_PER_USER_PER_MINUTE,
+                                window_seconds=60,
+                            )
+                        except Exception:
+                            await websocket.close(
+                                code=1008,
+                                reason="Too many app messages.",
+                            )
+                            await call_runtime_service.queue_user_text(
+                                call_info,
+                                "HANG_UP",
+                            )
+                            break
+
                     text = data.get("text")
                     if (
                         not isinstance(text, str)
@@ -183,6 +242,9 @@ async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
 # 2. WebSocket for Twilio Media Stream
 @router.websocket("/ws/twilio/{call_id}")
 async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
+    if not await _enforce_ws_ip_rate_limit(websocket, "ws-twilio-connect"):
+        return
+
     await websocket.accept()
     call_info = call_session_service.get_session(call_id)
     if call_info is None:
@@ -195,6 +257,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     voice_preset = call_info.get("voice_preset", "alloy")
     loop = asyncio.get_running_loop()
     db_id = call_info.get("db_id")
+    started_at = time.monotonic()
 
     # --- Prefetch Greeting TTS ---
     greeting_text = GREETINGS.get(target_lang, GREETINGS["English"])
@@ -283,10 +346,41 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     async def process_twilio_media():
         try:
             while True:
-                msg = await websocket.receive_text()
-                data = json.loads(msg)
-                if data['event'] == 'start':
-                    call_session_service.set_stream_sid(call_id, data['start']['streamSid'])
+                receive_timeout = 30.0
+                if config.MAX_CALL_DURATION_SECONDS > 0:
+                    elapsed = time.monotonic() - started_at
+                    remaining = config.MAX_CALL_DURATION_SECONDS - elapsed
+                    if remaining <= 0:
+                        print(f"[Twilio:{call_id}] Max call duration reached.")
+                        break
+                    receive_timeout = max(0.1, min(receive_timeout, remaining))
+
+                try:
+                    msg = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=receive_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    continue
+
+                if len(msg.encode("utf-8")) > config.TWILIO_MEDIA_MAX_MESSAGE_BYTES:
+                    await websocket.close(code=1009, reason="Message too large.")
+                    break
+
+                try:
+                    data = json.loads(msg)
+                except json.JSONDecodeError:
+                    await websocket.close(code=1003, reason="Invalid JSON.")
+                    break
+
+                event = data.get("event")
+                if event == 'start':
+                    try:
+                        stream_sid = data['start']['streamSid']
+                    except (KeyError, TypeError):
+                        await websocket.close(code=1003, reason="Invalid start.")
+                        break
+                    call_session_service.set_stream_sid(call_id, stream_sid)
                     if db_id: asyncio.create_task(db_service.update_call_status(db_id, "connected"))
 
                     final_greeting_text = await greeting_text_task
@@ -308,14 +402,26 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                                     "media": {"payload": payload},
                                 }
                             )
-                elif data['event'] == 'media':
+                elif event == 'media':
                     if not deepgram_ready.is_set(): await deepgram_ready.wait()
-                    deepgram_socket.send(base64.b64decode(data['media']['payload']))
-                elif data['event'] == 'stop':
+                    try:
+                        audio_payload = base64.b64decode(
+                            data['media']['payload'],
+                            validate=True,
+                        )
+                    except (KeyError, TypeError, Base64Error):
+                        await websocket.close(code=1003, reason="Invalid media.")
+                        break
+                    deepgram_socket.send(audio_payload)
+                elif event == 'stop':
+                    break
+                else:
+                    await websocket.close(code=1003, reason="Invalid event.")
                     break
         except WebSocketDisconnect:
             print(f"[Twilio:{call_id}] Twilio disconnected.")
         finally:
+            await _complete_twilio_call(call_info)
             await call_runtime_service.send_to_app(call_info, {"type": "call_ended"})
             await call_runtime_service.send_hang_up(call_info)
             if db_id:
@@ -331,9 +437,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
             while True:
                 user_text = await call_runtime_service.next_user_text(call_info)
                 if user_text == "HANG_UP":
-                    if call_info.get("twilio_call_sid"):
-                        try: config.twilio_client.calls(call_info["twilio_call_sid"]).update(status="completed")
-                        except: pass
+                    await _complete_twilio_call(call_info)
                     break
                 
                 translated_text = await ai_service.translate_text(user_text, target_lang) if call_info.get("ai_mediation", True) else user_text

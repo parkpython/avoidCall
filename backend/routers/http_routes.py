@@ -8,6 +8,7 @@ import config
 from config import LANGUAGE_MAP
 from security import (
     AuthenticatedUser,
+    client_identity_from_request,
     enforce_rate_limit,
     require_authenticated_user,
     require_matching_user,
@@ -31,6 +32,11 @@ def _is_public_server_domain(domain: str | None) -> bool:
 
 
 def _validate_outbound_call_config() -> None:
+    if not config.OUTBOUND_CALLS_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Outbound calls are temporarily disabled.",
+        )
     if not config.SERVER_DOMAIN:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -59,35 +65,110 @@ def _validate_outbound_call_config() -> None:
         )
 
 
+def _require_ai_features_enabled() -> None:
+    if config.LOCAL_TEST_MODE:
+        return
+    if not config.AI_FEATURES_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI-backed features are temporarily disabled.",
+        )
+
+
+def _enforce_ip_rate_limit(
+    request: Request,
+    *,
+    action: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    if limit <= 0:
+        return
+    enforce_rate_limit(
+        identity=client_identity_from_request(request),
+        action=action,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+
+
+def _enforce_user_rate_limit(
+    user_id: str,
+    *,
+    action: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    if limit <= 0:
+        return
+    enforce_rate_limit(
+        identity=user_id,
+        action=action,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+
+
+def _validate_active_call_capacity(user_id: str) -> None:
+    call_session_service.delete_expired_sessions(config.MAX_CALL_DURATION_SECONDS)
+
+    if (
+        config.MAX_ACTIVE_CALLS > 0
+        and call_session_service.active_session_count() >= config.MAX_ACTIVE_CALLS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Server call capacity is currently full.",
+        )
+
+    if (
+        config.MAX_ACTIVE_CALLS_PER_USER > 0
+        and call_session_service.active_session_count_for_user(user_id)
+        >= config.MAX_ACTIVE_CALLS_PER_USER
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="You already have an active call.",
+        )
+
+
 @router.post("/prefetch")
 async def prefetch(
-    request: PrefetchRequest,
+    payload: PrefetchRequest,
+    http_request: Request,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ):
     """미리 번역하고 TTS를 생성하여 캐시에 저장합니다."""
-    enforce_rate_limit(
-        identity=current_user.user_id,
+    _require_ai_features_enabled()
+    _enforce_user_rate_limit(
+        current_user.user_id,
         action="prefetch",
-        limit=60,
+        limit=config.PREFETCH_PER_USER_PER_MINUTE,
         window_seconds=60,
     )
-    lang_settings = LANGUAGE_MAP.get(request.language, LANGUAGE_MAP["English"])
+    _enforce_ip_rate_limit(
+        http_request,
+        action="prefetch",
+        limit=config.PREFETCH_PER_IP_PER_MINUTE,
+        window_seconds=60,
+    )
+    lang_settings = LANGUAGE_MAP.get(payload.language, LANGUAGE_MAP["English"])
     target_lang = lang_settings["target"]
 
     if config.LOCAL_TEST_MODE:
         return {
             "status": "success",
-            "translated_text": f"[local {target_lang}] {request.text}",
+            "translated_text": f"[local {target_lang}] {payload.text}",
         }
 
     # 1. Translation
-    translated_text = await ai_service.translate_text(request.text, target_lang)
+    translated_text = await ai_service.translate_text(payload.text, target_lang)
 
     if not translated_text:
         return {"status": "error", "message": "Translation failed"}
 
     # 2. TTS
-    voice = request.voice_preset
+    voice = payload.voice_preset
     await ai_service.text_to_speech_multilingual(translated_text, voice)
 
     return {"status": "success", "translated_text": translated_text}
@@ -95,14 +176,22 @@ async def prefetch(
 
 @router.post("/preview-voice")
 async def preview_voice(
-    request: PreviewRequest,
+    payload: PreviewRequest,
+    http_request: Request,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ):
     """목소리 미리듣기를 위해 MP3 오디오를 반환합니다."""
-    enforce_rate_limit(
-        identity=current_user.user_id,
+    _require_ai_features_enabled()
+    _enforce_user_rate_limit(
+        current_user.user_id,
         action="preview-voice",
-        limit=30,
+        limit=config.PREVIEW_VOICE_PER_USER_PER_MINUTE,
+        window_seconds=60,
+    )
+    _enforce_ip_rate_limit(
+        http_request,
+        action="preview-voice",
+        limit=config.PREVIEW_VOICE_PER_IP_PER_MINUTE,
         window_seconds=60,
     )
 
@@ -112,7 +201,7 @@ async def preview_voice(
             detail="OPENAI_API_KEY is required for voice preview.",
         )
 
-    audio = await ai_service.text_to_speech_mp3(request.text, request.voice_preset)
+    audio = await ai_service.text_to_speech_mp3(payload.text, payload.voice_preset)
 
     if audio:
         return Response(content=audio, media_type="audio/mpeg")
@@ -121,16 +210,36 @@ async def preview_voice(
 
 @router.post("/call")
 async def call(
-    request: CallRequest,
+    payload: CallRequest,
+    http_request: Request,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ):
-    require_matching_user(current_user, request.user_id)
-    enforce_rate_limit(
-        identity=current_user.user_id,
+    require_matching_user(current_user, payload.user_id)
+    _enforce_user_rate_limit(
+        current_user.user_id,
         action="call",
-        limit=5,
+        limit=config.CALLS_PER_USER_PER_MINUTE,
         window_seconds=60,
     )
+    _enforce_user_rate_limit(
+        current_user.user_id,
+        action="call-hour",
+        limit=config.CALLS_PER_USER_PER_HOUR,
+        window_seconds=60 * 60,
+    )
+    _enforce_ip_rate_limit(
+        http_request,
+        action="call",
+        limit=config.CALLS_PER_IP_PER_MINUTE,
+        window_seconds=60,
+    )
+    _enforce_ip_rate_limit(
+        http_request,
+        action="call-hour",
+        limit=config.CALLS_PER_IP_PER_HOUR,
+        window_seconds=60 * 60,
+    )
+    _validate_active_call_capacity(current_user.user_id)
 
     real_outbound_call = config.real_outbound_calls_enabled()
     if real_outbound_call:
@@ -143,18 +252,18 @@ async def call(
     if not config.LOCAL_TEST_MODE:
         db_id = await db_service.create_call_log(
             current_user.user_id,
-            request.target_number,
-            request.language,
+            payload.target_number,
+            payload.language,
         )
 
     session = call_session_service.create_session(
         call_id=call_id,
         user_id=current_user.user_id,
-        target_number=request.target_number,
-        language=request.language,
-        greeting_text=request.greeting_text,
-        ai_mediation=request.ai_mediation,
-        voice_preset=request.voice_preset,
+        target_number=payload.target_number,
+        language=payload.language,
+        greeting_text=payload.greeting_text,
+        ai_mediation=payload.ai_mediation,
+        voice_preset=payload.voice_preset,
         db_id=db_id,
     )
 
@@ -164,7 +273,7 @@ async def call(
 
     try:
         twilio_call = config.twilio_client.calls.create(
-            to=request.target_number,
+            to=payload.target_number,
             from_=config.TWILIO_PHONE_NUMBER,
             url=f"https://{config.SERVER_DOMAIN}/voice/{call_id}",
             method="POST",

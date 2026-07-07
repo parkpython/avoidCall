@@ -84,6 +84,56 @@ Secret 변경이 staged 상태로만 남으면 아래 명령으로 반영합니�
 fly secrets deploy --app avoid-call-backend
 ```
 
+## 비용 폭주 방지 스위치
+
+충전 전 기본 운영값은 실발신 차단입니다.
+
+```env
+OUTBOUND_CALLS_ENABLED=false
+MAX_ACTIVE_CALLS=1
+MAX_ACTIVE_CALLS_PER_USER=1
+MAX_CALL_DURATION_SECONDS=300
+CALLS_PER_USER_PER_MINUTE=2
+CALLS_PER_USER_PER_HOUR=5
+CALLS_PER_IP_PER_MINUTE=5
+CALLS_PER_IP_PER_HOUR=20
+```
+
+이 상태에서는 앱이 인증되어 있어도 실제 Twilio 발신은 `503`으로 막힙니다.
+OpenAI/Groq/Deepgram 기반 보조 기능은 `AI_FEATURES_ENABLED=true`일 때만
+동작합니다.
+
+Twilio 충전 후 1회 실검증을 열 때:
+
+```sh
+fly secrets set --app avoid-call-backend OUTBOUND_CALLS_ENABLED=true
+fly logs --app avoid-call-backend
+```
+
+검증이 끝났거나 이상 트래픽이 보이면 즉시 닫습니다.
+
+```sh
+fly secrets set --app avoid-call-backend OUTBOUND_CALLS_ENABLED=false
+```
+
+AI 비용성 기능까지 같이 잠그려면:
+
+```sh
+fly secrets set --app avoid-call-backend \
+  OUTBOUND_CALLS_ENABLED=false \
+  AI_FEATURES_ENABLED=false
+```
+
+다시 열 때:
+
+```sh
+fly secrets set --app avoid-call-backend AI_FEATURES_ENABLED=true
+```
+
+현재 rate limit과 동시 통화 제한은 프로세스 메모리 기반입니다. Machine 1대
+운영에서는 유효하지만, 여러 Machine으로 늘리기 전에는 Redis 같은 공유 저장소로
+옮겨야 합니다.
+
 ## 서버 재시작
 
 전체 Machine 재시작:

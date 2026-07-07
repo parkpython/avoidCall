@@ -48,6 +48,30 @@ def _extract_websocket_protocol_token(websocket: WebSocket) -> str | None:
     return None
 
 
+def _forwarded_client_ip(headers, fallback: str | None) -> str:
+    fly_client_ip = headers.get("fly-client-ip")
+    if fly_client_ip:
+        return fly_client_ip.strip()
+
+    forwarded_for = headers.get("x-forwarded-for")
+    if forwarded_for:
+        first_hop = forwarded_for.split(",", 1)[0].strip()
+        if first_hop:
+            return first_hop
+
+    return fallback or "unknown"
+
+
+def client_identity_from_request(request: Request) -> str:
+    fallback = request.client.host if request.client else None
+    return _forwarded_client_ip(request.headers, fallback)
+
+
+def client_identity_from_websocket(websocket: WebSocket) -> str:
+    fallback = websocket.client.host if websocket.client else None
+    return _forwarded_client_ip(websocket.headers, fallback)
+
+
 def auth_is_disabled_for_local_dev() -> bool:
     environment = os.getenv("ENVIRONMENT", "development").strip().lower()
     if config.LOCAL_TEST_MODE:
