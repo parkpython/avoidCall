@@ -4,9 +4,15 @@ WORKDIR /app
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/ ./backend/
 COPY backend/ .
 COPY scripts/ ./scripts/
 
-# 👇 여기가 핵심입니다! (대괄호 없이 이렇게 적어야 $PORT가 숫자로 바뀝니다)
+# Railway service-specific entrypoint can be overridden with APP_MODULE.
+ENV APP_MODULE=main:app
 ENV PORT=8000
-CMD uvicorn main:app --host 0.0.0.0 --port $PORT
+RUN chmod +x ./scripts/start_service.sh ./backend/openclaw_task.sh
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+CMD ["./scripts/start_service.sh"]
