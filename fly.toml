@@ -1,0 +1,42 @@
+app = "avoid-call-backend"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_MODULE = "main:app"
+  APP_MODE = "production"
+  ENVIRONMENT = "production"
+  LOCAL_TEST_MODE = "false"
+  LOCAL_OUTBOUND_CALLS = "false"
+  SERVER_DOMAIN = "avoid-call-backend.fly.dev"
+  ALLOWED_HOSTS = ""
+  CORS_ALLOWED_ORIGINS = ""
+  MAX_REQUEST_BODY_BYTES = "65536"
+  VERIFY_TWILIO_SIGNATURES = "true"
+  ALLOW_UNAUTHENTICATED_REQUESTS = "false"
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 75
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
