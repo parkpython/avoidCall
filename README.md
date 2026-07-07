@@ -80,14 +80,81 @@ avoid_call/
     OPENAI_API_KEY=your_openai_api_key
     GROQ_API_KEY=your_groq_api_key
     SERVER_DOMAIN=your_ngrok_or_server_url
+    ENVIRONMENT=development
+    ALLOWED_HOSTS=localhost,127.0.0.1,your_backend_host
+    CORS_ALLOWED_ORIGINS=
+    MAX_REQUEST_BODY_BYTES=65536
+    VERIFY_TWILIO_SIGNATURES=true
+    ALLOW_UNAUTHENTICATED_REQUESTS=false
     SUPABASE_URL=your_supabase_url
-    SUPABASE_KEY=your_supabase_service_role_key
+    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
     ```
+
+    Security defaults:
+    - Mobile app requests must include a Supabase bearer token.
+    - Twilio voice webhooks are signature-validated by default.
+    - Set `ALLOW_UNAUTHENTICATED_REQUESTS=true` only for isolated local development.
 
 5.  **Run the server:**
     ```bash
     uvicorn main:app --reload
     ```
+
+### Local Test Mode
+
+Local mode runs the Flutter app against a local FastAPI backend without Supabase login, Twilio calls, Deepgram, OpenAI, or Groq by default. The backend creates a simulated call session and sends mock call replies over the same app WebSocket flow.
+
+1.  **Backend:**
+    ```bash
+    cp backend/.env.local.example backend/.env
+    PYTHON_BIN=backend/venv/bin/python scripts/start_local_backend.sh
+    ```
+
+2.  **Flutter app:**
+    ```bash
+    cp main_project_app/.env.local.example main_project_app/.env
+    cd main_project_app
+    flutter run
+    ```
+
+For production/deploy mode, use `backend/.env.production.example` and `main_project_app/.env.production.example` as the templates. Production mode keeps Supabase auth, subscription checks, Twilio signature verification, and provider-backed STT/TTS/LLM calls enabled.
+
+To place real Twilio calls while keeping the app/backend in local mode, expose the local backend through a public HTTPS/WSS tunnel and set these backend variables:
+
+```env
+LOCAL_OUTBOUND_CALLS=true
+SERVER_DOMAIN=your_public_tunnel_host
+TWILIO_ACCOUNT_SID=your_twilio_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
+DEEPGRAM_API_KEY=your_deepgram_api_key
+OPENAI_API_KEY=your_openai_api_key
+GROQ_API_KEY=your_groq_api_key
+```
+
+`SERVER_DOMAIN` must be reachable by Twilio. `localhost` and `127.0.0.1` are valid for simulated local calls, but not for real outbound calls.
+
+### OpenClaw Ops Service
+
+The repo also supports a separate Railway service for Telegram-driven operations.
+
+- Set `APP_MODULE=openclaw_ops:app` on the `openclaw-ops` service.
+- Configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `TELEGRAM_ALLOWED_CHAT_IDS`.
+- `TELEGRAM_ALLOWED_CHAT_IDS` should be required for safe operation.
+- Persist state on a Railway volume-backed path such as `OPENCLAW_STATE_DIR=/data/openclaw-ops`.
+- Map only explicit task names with service-level variables such as:
+  - `OPENCLAW_TASK_STATUS=/app/backend/openclaw_task.sh status`
+  - `OPENCLAW_TASK_HEALTH=/app/backend/openclaw_task.sh health`
+  - `OPENCLAW_TASK_LOGS=/app/backend/openclaw_task.sh logs`
+  - `OPENCLAW_TASK_GIT_STATUS=/app/backend/openclaw_task.sh git_status`
+  - `OPENCLAW_TASK_GIT_REV=/app/backend/openclaw_task.sh git_rev`
+- Optional service-only runtime install:
+  - `OPENCLAW_INSTALL_RUNTIME=1`
+  - `OPENCLAW_RUNTIME_COMMAND=openclaw status`
+- Telegram commands:
+  - `/health`
+  - `/tasks`
+  - `/task <name>`
 
 ### Mobile App Setup
 
@@ -104,6 +171,8 @@ avoid_call/
 3.  **Configure Environment Variables:**
     Create a `.env` file in the `main_project_app/` directory (refer to `.env.template`):
     ```env
+    APP_MODE=production
+    LOCAL_TEST_MODE=false
     SUPABASE_URL=your_supabase_url
     SUPABASE_ANON_KEY=your_supabase_anon_key
     API_URL=your_backend_api_url
@@ -241,10 +310,21 @@ DEEPGRAM_API_KEY=your_deepgram_api_key
 OPENAI_API_KEY=your_openai_api_key
 GROQ_API_KEY=your_groq_api_key
 SERVER_DOMAIN=your_ngrok_or_server_url
+ENVIRONMENT=development
+ALLOWED_HOSTS=localhost,127.0.0.1,your_backend_host
+CORS_ALLOWED_ORIGINS=
+MAX_REQUEST_BODY_BYTES=65536
+VERIFY_TWILIO_SIGNATURES=true
+ALLOW_UNAUTHENTICATED_REQUESTS=false
 SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_service_role_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 ```
+
+보안 기본값:
+- 모바일 앱 요청은 Supabase bearer token이 있어야 처리됩니다.
+- Twilio voice webhook은 기본적으로 signature 검증을 수행합니다.
+- `ALLOW_UNAUTHENTICATED_REQUESTS=true`는 격리된 로컬 개발에서만 사용하세요.
 
 
 5. **서버를 실행합니다:**
@@ -252,6 +332,25 @@ SUPABASE_KEY=your_supabase_service_role_key
 uvicorn main:app --reload
 
 ```
+
+### 로컬 테스트 모드
+
+로컬 모드는 Supabase 로그인, Twilio 발신, Deepgram, OpenAI, Groq 없이 앱과 로컬 FastAPI 백엔드만으로 통화 흐름을 테스트합니다. 백엔드가 가짜 통화 세션을 만들고 앱 WebSocket으로 모의 응답을 보냅니다.
+
+1. **백엔드**
+```bash
+cp backend/.env.local.example backend/.env
+PYTHON_BIN=backend/venv/bin/python scripts/start_local_backend.sh
+```
+
+2. **Flutter 앱**
+```bash
+cp main_project_app/.env.local.example main_project_app/.env
+cd main_project_app
+flutter run
+```
+
+배포 모드는 `backend/.env.production.example`과 `main_project_app/.env.production.example`을 기준으로 설정하세요. 배포 모드에서는 Supabase 인증, 구독 체크, Twilio signature 검증, 실제 STT/TTS/LLM 연동이 켜진 상태로 동작합니다.
 
 
 

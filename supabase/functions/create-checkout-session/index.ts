@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
       sessionId: session.id,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return jsonResponse({ error: message }, 500);
+    console.error('create-checkout-session failed', error);
+    return jsonResponse({ error: 'Internal server error.' }, 500);
   }
 });

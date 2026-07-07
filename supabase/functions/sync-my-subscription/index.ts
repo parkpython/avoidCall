@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
         : null,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return jsonResponse({ error: message }, 500);
+    console.error('sync-my-subscription failed', error);
+    return jsonResponse({ error: 'Internal server error.' }, 500);
   }
 });

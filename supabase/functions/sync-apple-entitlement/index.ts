@@ -178,7 +178,7 @@ Deno.serve(async (req) => {
 
     return productionNotImplementedResponse(request);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return jsonResponse({ error: message }, 500);
+    console.error('sync-apple-entitlement failed', error);
+    return jsonResponse({ error: 'Internal server error.' }, 500);
   }
 });
