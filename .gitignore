@@ -37,3 +37,10 @@ ios/Runner/GeneratedPluginRegistrant.*
 # Sensitive Data
 *.key
 *.pem
+.env.local
+.env.*.local
+backend/.env.local
+backend/.env.*.local
+main_project_app/.env.local
+main_project_app/.env.*.local
+.codex/*.local.toml

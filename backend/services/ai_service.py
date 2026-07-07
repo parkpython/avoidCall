@@ -1,7 +1,11 @@
-import audioop
 import json
 import re
 from config import groq_client, openai_client
+
+try:
+    import audioop
+except ModuleNotFoundError:
+    audioop = None
 
 # --- Global Caches ---
 TTS_CACHE = {}
@@ -155,6 +159,8 @@ def _segment_phone_tts_text(text: str) -> list[str]:
 
 def _pcm24khz_to_mulaw8khz(pcm_audio: bytes) -> bytes:
     """Convert 24kHz 16-bit PCM from OpenAI speech API into 8kHz μ-law for Twilio."""
+    if audioop is None:
+        raise RuntimeError("audioop is required for Twilio audio conversion.")
     downsampled, _ = audioop.ratecv(pcm_audio, 2, 1, 24000, 8000, None)
     return audioop.lin2ulaw(downsampled, 2)
 

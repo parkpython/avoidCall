@@ -3,6 +3,14 @@ import traceback
 from datetime import datetime, timezone
 from supabase_client import supabase
 
+
+def _mask_phone_number(phone_number):
+    if not phone_number:
+        return phone_number
+    visible = str(phone_number)[-4:]
+    return f"***{visible}"
+
+
 async def create_call_log(device_id, target_number, language):
     """통화 시작 시 로그를 생성하고 ID를 반환합니다."""
     if not supabase: return None
@@ -13,7 +21,8 @@ async def create_call_log(device_id, target_number, language):
             "language": language,
             "status": "dialing"
         }
-        print(f"🛠️ [Supabase] Creating call log: {data}")
+        safe_data = {**data, "target_number": _mask_phone_number(target_number)}
+        print(f"🛠️ [Supabase] Creating call log: {safe_data}")
         loop = asyncio.get_running_loop()
         res = await loop.run_in_executor(
             None, 
