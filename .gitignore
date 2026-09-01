@@ -9,9 +9,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-backend/.env
-main_project_app/.env
 venv/
 .venv/
 env/
@@ -37,3 +34,31 @@ ios/Runner/GeneratedPluginRegistrant.*
 # Sensitive Data
 *.key
 *.pem
+*.p8
+*.p12
+*.pfx
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+**/GoogleService-Info.plist
+**/Secrets.xcconfig
+**/secrets.xcconfig
+
+# Environment files (keep shareable examples/templates trackable)
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.*.sample
+!.env.template
+!.env.*.template
+
+# Local assistant/tool settings
+**/.claude/settings.local.json
+**/.claude/*.local.*
+.codex/*.local.toml
+
+# Local archives
+backend.zip
