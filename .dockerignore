@@ -1,11 +1,26 @@
 .git
 .gitignore
 .DS_Store
+.claude
+**/.claude
 
 **/.env
 **/.env.*
 !**/.env.example
 !**/.env.*.example
+
+**/*.key
+**/*.pem
+**/*.p8
+**/*.p12
+**/*.pfx
+**/*.cer
+**/*.certSigningRequest
+**/*.mobileprovision
+**/*.provisionprofile
+**/GoogleService-Info.plist
+**/Secrets.xcconfig
+**/secrets.xcconfig
 
 backend/venv
 backend/__pycache__
