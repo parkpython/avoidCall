@@ -1,0 +1,4 @@
+# Copy this file to config.toml and replace YOUR_PROJECT_REF locally.
+# Keep personal project settings and credentials out of version control.
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=YOUR_PROJECT_REF&read_only=true"

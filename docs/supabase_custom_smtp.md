@@ -181,24 +181,25 @@ If emails fail:
   - CI/CD secret manager
   - local untracked `.env` files if absolutely necessary
 
-## Existing repo risk to address manually
+## Checking for committed credentials
 
-This repo currently contains tracked `.env` files with real-looking credentials/keys:
+Keep `backend/.env` and `main_project_app/.env` local and untracked. Share only
+example or template files with empty values or clearly marked placeholders.
 
-- `backend/.env`
-- `main_project_app/.env`
+A file name or an old warning does not establish that a credential was exposed.
+Check the current tracked files and relevant Git history before reporting a leak.
+Do not paste suspected secret values into issues, screenshots, or review comments.
 
-Adding `.gitignore` only protects future commits. It does **not** untrack files already in git history.
+`.gitignore` prevents new untracked files from being added accidentally. It does
+not untrack an existing file, remove a value from history, or revoke a credential.
 
-Manual follow-up recommended:
+If a sensitive credential is confirmed to have been committed:
 
-1. Rotate any sensitive keys already committed
-2. Remove tracked `.env` files from git with:
+1. Revoke or rotate it with its provider and update the services that use it.
+2. Remove the tracked secret or stop tracking the affected local-only file,
+   keeping a placeholder-only example where needed.
+3. Assess whether history cleanup is necessary and coordinate it with anyone
+   using an existing clone. Rewriting history does not invalidate leaked keys.
+4. Recheck the result and enable available secret scanning and push protection.
 
-```bash
-git rm --cached backend/.env main_project_app/.env
-```
-
-3. Commit the removal
-4. Keep only `.env.example` in version control
-
+See [GitHub’s guidance on removing sensitive data](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
