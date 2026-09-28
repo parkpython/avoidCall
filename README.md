@@ -128,11 +128,17 @@ Custom SMTP for hosted Supabase is an operational configuration, not an app-code
   - password reset via `resetPasswordForEmail(...)`
 - Magic link / OTP email login is not currently implemented in app code
 - Setup guide:
-  - [docs/supabase_custom_smtp.md](/Users/parkjonghyeok/avoid_call/docs/supabase_custom_smtp.md)
+  - [docs/supabase_custom_smtp.md](docs/supabase_custom_smtp.md)
 - Use `.env.example` files as placeholders only
 - Never commit SMTP credentials into git
 
 ---
+
+### Optional development tooling
+
+For a local Supabase connection, copy `.codex/config.example.toml` to
+`.codex/config.toml` and replace `YOUR_PROJECT_REF` with your own project reference.
+The local configuration is ignored by Git; keep credentials out of the template.
 
 ## 📱 Key Features
 
