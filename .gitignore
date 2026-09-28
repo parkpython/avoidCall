@@ -59,6 +59,7 @@ ios/Runner/GeneratedPluginRegistrant.*
 **/.claude/settings.local.json
 **/.claude/*.local.*
 .codex/*.local.toml
+.codex/config.toml
 
 # Local archives
 backend.zip
