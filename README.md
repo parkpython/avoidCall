@@ -1,319 +1,61 @@
-# Avoid-Call: AI-Powered Voice Mediation System
+# Avoid Call
 
-Avoid-Call is a sophisticated communication platform that leverages AI to mediate and enhance voice calls. It provides real-time transcription, translation, and automated call handling features.
+친구는 일본 여행에서 식당에 예약 전화를 걸 때마다 일본어 표현을 찾아보고, 몇 번 소리 내어 연습한 뒤에야 전화를 걸었습니다. 한국어로 입력해도 식당과 통화할 수 있으면 좋겠다고 생각해서 만든 앱입니다.
 
-## 🚀 Project Overview
+앱에 ‘오늘 저녁 두 명 예약할 수 있나요?’라고 입력하면 식당에는 일본어 음성으로 들립니다. 직원이 일본어로 답하면 여행자는 앱에서 한국어 자막을 읽습니다. 친구 2~3명이 사용해 봤고, 일본인 친구와 실제 통화로 동작을 확인했습니다. 정식 출시하지 않은 프로토타입입니다.
 
-The system consists of two main components:
-1.  **Backend (Python/FastAPI):** Orchestrates call routing, AI integration (STT, LLM, TTS), and real-time media streaming via Twilio.
-2.  **Mobile App (Flutter):** A feature-rich dialer and call management application with real-time feedback and contact integration.
+## 통화 화면에서 신경 쓴 점
 
----
+전화로 들은 짧은 말은 문맥에 따라 뜻이 달라집니다. 잘 안 들린 말을 AI가 매끄럽게 고치다 보면 상대가 하지 않은 말도 붙을 수 있었습니다. 그래서 기본 번역을 그대로 보여 주고, 별도의 보정안이 있을 때만 그 아래에 **AI 추측**이라고 표시했습니다. 서버에서는 보정안이 인식 원문 길이의 4배를 넘으면 버립니다.
 
-## 🛠 Tech Stack
+## 코드 구성
 
-### Backend
-- **Framework:** FastAPI (Python)
-- **Real-time Voice:** Twilio Media Streams
-- **STT (Speech-to-Text):** Deepgram
-- **LLM (Large Language Model):** OpenAI (GPT-4) & Groq
-- **Database:** Supabase
-- **Authentication:** Supabase Auth
+| 위치 | 맡은 일 |
+| --- | --- |
+| [Flutter 앱](main_project_app/lib/src/features/) | 상대방 전화번호 입력, 통화 중 메시지 전송, 원문과 번역 표시. 화면 상태는 Riverpod, 화면 이동은 GoRouter로 관리합니다. |
+| [FastAPI 서버](backend/routers/) | Twilio로 전화를 걸고 WebSocket으로 앱의 메시지와 통화 음성을 주고받습니다. |
+| [번역·음성 처리](backend/services/ai_service.py) | Deepgram이 전화 음성을 인식하고, Groq에서 실행하는 Llama가 번역합니다. 앱에서 보낼 문장은 OpenAI 음성 합성으로 읽습니다. |
+| [Supabase](backend/schema.sql) | 앱은 Supabase Auth로 로그인하고 서버는 통화 기록을 저장합니다. |
 
-### Mobile (main_project_app)
-- **Framework:** Flutter (Dart)
-- **State Management:** Riverpod
-- **Local Database:** Drift (SQLite)
-- **Navigation:** Go Router
-- **Backend Integration:** Supabase Flutter SDK
-- **Environment Management:** flutter_dotenv
+## 실행 방법
 
----
+아래 명령은 macOS·Linux 기준입니다. 서버와 앱은 각각 저장소 루트에서 시작합니다.
 
-## 📂 Project Structure
+### Flutter 앱
 
-```text
-avoid_call/
-├── backend/                # FastAPI Python Server
-│   ├── main.py             # Main entry point & Twilio WebSocket logic
-│   ├── supabase_client.py  # Database interactions
-│   ├── schemas.py          # Pydantic models
-│   └── requirements.txt    # Python dependencies
-└── main_project_app/       # Flutter Mobile Application
-    ├── lib/
-    │   ├── main.dart       # App entry point
-    │   └── src/
-    │       ├── core/       # Database, Routing, Providers
-    │       └── features/   # Functional modules (Auth, Contacts, Call, etc.)
-    └── assets/             # Images and Icons
-```
+Dart 3.9.2 이상(3.x)이 포함된 Flutter SDK가 필요합니다.
 
----
-
-## ⚙️ Setup & Installation
-
-### Backend Setup
-
-1.  **Navigate to the backend directory:**
-    ```bash
-    cd backend
-    ```
-
-2.  **Create and activate a virtual environment:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
-
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Configure Environment Variables:**
-    Create a `.env` file in the `backend/` directory:
-    ```env
-    TWILIO_ACCOUNT_SID=your_twilio_sid
-    TWILIO_AUTH_TOKEN=your_twilio_auth_token
-    TWILIO_PHONE_NUMBER=your_twilio_phone_number
-    DEEPGRAM_API_KEY=your_deepgram_api_key
-    OPENAI_API_KEY=your_openai_api_key
-    GROQ_API_KEY=your_groq_api_key
-    SERVER_DOMAIN=your_ngrok_or_server_url
-    SUPABASE_URL=your_supabase_url
-    SUPABASE_KEY=your_supabase_service_role_key
-    ```
-
-5.  **Run the server:**
-    ```bash
-    uvicorn main:app --reload
-    ```
-
-### Mobile App Setup
-
-1.  **Navigate to the app directory:**
-    ```bash
-    cd main_project_app
-    ```
-
-2.  **Install Flutter dependencies:**
-    ```bash
-    flutter pub get
-    ```
-
-3.  **Configure Environment Variables:**
-    Create a `.env` file in the `main_project_app/` directory (refer to `.env.template`):
-    ```env
-    SUPABASE_URL=your_supabase_url
-    SUPABASE_ANON_KEY=your_supabase_anon_key
-    API_URL=your_backend_api_url
-    ```
-
-4.  **Generate Database Code (Drift):**
-    ```bash
-    dart run build_runner build --delete-conflicting-outputs
-    ```
-
-5.  **Run the application:**
-    ```bash
-    flutter run
-    ```
-
-### Supabase Auth Custom SMTP
-
-Custom SMTP for hosted Supabase is an operational configuration, not an app-code feature toggle.
-
-- Auth email flows currently used in this repo:
-  - signup confirmation via `signUp(...)`
-  - password reset via `resetPasswordForEmail(...)`
-- Magic link / OTP email login is not currently implemented in app code
-- Setup guide:
-  - [docs/supabase_custom_smtp.md](docs/supabase_custom_smtp.md)
-- Use `.env.example` files as placeholders only
-- Never commit SMTP credentials into git
-
----
-
-### Optional development tooling
-
-For a local Supabase connection, copy `.codex/config.example.toml` to
-`.codex/config.toml` and replace `YOUR_PROJECT_REF` with your own project reference.
-The local configuration is ignored by Git; keep credentials out of the template.
-
-## 📱 Key Features
-
-- **Real-time AI Mediation:** Automated voice interaction during calls.
-- **Smart Dialer:** Integrated contact management and call logs.
-- **Transcriptions & Translation:** High-accuracy STT and real-time translation during calls.
-- **Secure Authentication:** Seamless login via Supabase.
-- **Local Storage:** Fast and reliable local data management using SQLite/Drift.
-
----
-
-## 📜 License
-
-This project is private and intended for internal use.
-
-
-# Avoid-Call: AI 기반 음성 중재(통역 및 보조) 시스템
-
-Avoid-Call은 AI를 활용하여 음성 통화를 중재하고 향상시키는 정교한 커뮤니케이션 플랫폼입니다. 실시간 전사(음성 인식), 번역 및 자동 통화 처리 기능을 제공합니다.
-
-## 🚀 프로젝트 개요
-
-이 시스템은 두 가지 주요 구성 요소로 이루어져 있습니다:
-
-1. **백엔드 (Python/FastAPI):** 통화 라우팅, AI 연동(STT, LLM, TTS), 그리고 Twilio를 통한 실시간 미디어 스트리밍을 오케스트레이션(조율)합니다.
-2. **모바일 앱 (Flutter):** 실시간 피드백과 연락처 연동 기능을 갖춘 풍부한 기능의 다이얼러 및 통화 관리 애플리케이션입니다.
-
----
-
-## 🛠 기술 스택
-
-### 백엔드 (Backend)
-
-* **프레임워크:** FastAPI (Python)
-* **실시간 음성:** Twilio Media Streams
-* **STT (음성 인식):** Deepgram
-* **LLM (대형 언어 모델):** OpenAI (GPT-4) & Groq
-* **데이터베이스:** Supabase
-* **인증:** Supabase Auth
-
-### 모바일 (main_project_app)
-
-* **프레임워크:** Flutter (Dart)
-* **상태 관리:** Riverpod
-* **로컬 데이터베이스:** Drift (SQLite)
-* **네비게이션:** Go Router
-* **백엔드 연동:** Supabase Flutter SDK
-* **환경 변수 관리:** flutter_dotenv
-
----
-
-## 📂 프로젝트 구조
-
-```text
-avoid_call/
-├── backend/                # FastAPI 파이썬 서버
-│   ├── main.py             # 메인 진입점 및 Twilio 웹소켓 로직
-│   ├── supabase_client.py  # 데이터베이스 상호작용
-│   ├── schemas.py          # Pydantic 모델
-│   └── requirements.txt    # 파이썬 패키지 의존성
-└── main_project_app/       # Flutter 모바일 애플리케이션
-    ├── lib/
-    │   ├── main.dart       # 앱 진입점
-    │   └── src/
-    │       ├── core/       # 데이터베이스, 라우팅, 상태 관리(Providers)
-    │       └── features/   # 기능 모듈 (인증, 연락처, 통화 등)
-    └── assets/             # 이미지 및 아이콘 자산
-
-```
-
----
-
-## ⚙️ 설정 및 설치 방법
-
-### 백엔드 설정
-
-1. **backend 디렉토리로 이동합니다:**
-```bash
-cd backend
-
-```
-
-
-2. **가상 환경을 생성하고 활성화합니다:**
-```bash
-python3 -m venv venv
-source venv/bin/activate  # Windows의 경우: venv\Scripts\activate
-
-```
-
-
-3. **의존성 패키지를 설치합니다:**
-```bash
-pip install -r requirements.txt
-
-```
-
-
-4. **환경 변수(.env)를 설정합니다:**
-`backend/` 디렉토리 안에 `.env` 파일을 생성하고 다음 내용을 입력합니다:
-```env
-TWILIO_ACCOUNT_SID=your_twilio_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number
-DEEPGRAM_API_KEY=your_deepgram_api_key
-OPENAI_API_KEY=your_openai_api_key
-GROQ_API_KEY=your_groq_api_key
-SERVER_DOMAIN=your_ngrok_or_server_url
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_service_role_key
-
-```
-
-
-5. **서버를 실행합니다:**
-```bash
-uvicorn main:app --reload
-
-```
-
-
-
-### 모바일 앱 설정
-
-1. **앱 디렉토리로 이동합니다:**
-```bash
+```sh
 cd main_project_app
-
-```
-
-
-2. **Flutter 패키지를 설치합니다:**
-```bash
+cp .env.example .env
 flutter pub get
-
+flutter test
 ```
 
+위젯 테스트는 예시 설정만으로 실행할 수 있습니다. 통화용 API 키는 필요하지 않습니다. 앱을 직접 실행하려면 `.env`에 Supabase 주소와 앱용 공개 키, 기기에서 접근할 수 있는 백엔드 주소(`API_URL`)를 입력한 뒤 `flutter run`을 실행합니다. 통화 화면에 들어가려면 로그인과 활성 구독 상태가 필요합니다. iOS에서 테스트 구독을 설정하는 방법은 [StoreKit 테스트 문서](docs/apple_iap_stage1_stage2.md)에 있습니다.
 
-3. **환경 변수를 설정합니다:**
-`main_project_app/` 디렉토리 안에 `.env` 파일을 생성합니다 (`.env.template` 파일 참고):
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-API_URL=your_backend_api_url
+### Python 서버
 
+저장소의 Dockerfile과 같은 Python 3.10 기준입니다.
+
+```sh
+cd backend
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
+`.env`에 Twilio 발신 번호와 계정 정보, Deepgram·Groq·OpenAI 키, Supabase 서버 설정을 입력합니다. 실제 전화에서는 Twilio가 `SERVER_DOMAIN`의 HTTPS와 WebSocket 주소로 접속할 수 있어야 합니다. 서버에서 사용하는 Supabase 서비스 키는 백엔드에만 둡니다.
 
-4. **데이터베이스 코드 생성 (Drift):**
-```bash
-dart run build_runner build --delete-conflicting-outputs
-
+```sh
+python -m uvicorn main:app --reload
 ```
 
+Supabase의 가입 확인·비밀번호 재설정 메일은 [SMTP 설정 문서](docs/supabase_custom_smtp.md)를 참고하세요. 개발 중 Codex에서 Supabase에 연결하려면 [.codex/config.example.toml](.codex/config.example.toml)을 `.codex/config.toml`로 복사하고 본인의 프로젝트 식별자를 입력하면 됩니다.
 
-5. **애플리케이션을 실행합니다:**
-```bash
-flutter run
+## English
 
-```
+Avoid Call is an unreleased prototype for travelers making restaurant reservations in Japan. The caller types in Korean, the restaurant hears the request in Japanese, and the restaurant’s reply appears as Korean subtitles. The call screen keeps the basic translation visible and labels any suggested correction separately. Two to three friends tried the prototype. I also tested it on a live call with a Japanese friend.
 
-
-
----
-
-## 📱 주요 기능
-
-* **실시간 AI 중재:** 통화 중 자동화된 음성 상호작용을 지원합니다.
-* **스마트 다이얼러:** 연락처 관리 및 통화 기록이 통합되어 있습니다.
-* **전사 및 번역:** 높은 정확도의 STT와 통화 중 실시간 번역을 제공합니다.
-* **안전한 인증:** Supabase를 통한 매끄러운 로그인 환경을 제공합니다.
-* **로컬 스토리지:** SQLite/Drift를 사용한 빠르고 안정적인 로컬 데이터 관리를 지원합니다.
-
----
-
-## 📜 라이선스
-
-이 프로젝트는 비공개(Private)이며 내부 사용을 목적으로 합니다.
+To run the widget tests, follow the Flutter commands above. For live calls, configure the app and backend using their respective `.env.example` files. Run `flutter run` in `main_project_app/` and `python -m uvicorn main:app --reload` in `backend/`.

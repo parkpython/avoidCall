@@ -10,18 +10,18 @@ async def send_to_app(session: SessionData, message: Any) -> None:
 
 async def send_hang_up(session: SessionData) -> None:
     await send_to_app(session, "HANG_UP")
-    await session["from_app_queue"].put("HANG_UP")
+    await queue_user_text(session, "HANG_UP")
 
 
-async def queue_user_text(session: SessionData, text: str) -> None:
-    await session["from_app_queue"].put(text)
+async def queue_user_text(session: SessionData, text: str, message_id: str | None = None) -> None:
+    await session["from_app_queue"].put((text, message_id))
 
 
 async def next_app_message(session: SessionData) -> Any:
     return await session["to_app_queue"].get()
 
 
-async def next_user_text(session: SessionData) -> str:
+async def next_user_text(session: SessionData) -> tuple[str, str | None]:
     return await session["from_app_queue"].get()
 
 

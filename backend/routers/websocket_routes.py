@@ -27,7 +27,9 @@ async def websocket_app_endpoint(websocket: WebSocket, call_id: str):
                 msg = await websocket.receive_text()
                 data = json.loads(msg)
                 if data.get("event") == "frontend_text":
-                    await call_runtime_service.queue_user_text(call_info, data["text"])
+                    await call_runtime_service.queue_user_text(
+                        call_info, data["text"], data.get("message_id")
+                    )
         except WebSocketDisconnect:
             print(f"[App:{call_id}] App disconnected.")
             await call_runtime_service.queue_user_text(call_info, "HANG_UP")
@@ -194,7 +196,7 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
     async def process_app_messages():
         try:
             while True:
-                user_text = await call_runtime_service.next_user_text(call_info)
+                user_text, message_id = await call_runtime_service.next_user_text(call_info)
                 if user_text == "HANG_UP":
                     if call_info.get("twilio_call_sid"):
                         try: config.twilio_client.calls(call_info["twilio_call_sid"]).update(status="completed")
@@ -211,7 +213,12 @@ async def websocket_twilio_endpoint(websocket: WebSocket, call_id: str):
                     )
                     await call_runtime_service.send_to_app(
                         call_info,
-                        {"type": "user_text", "original": user_text, "translated": translated_text},
+                        {
+                            "type": "user_text",
+                            "message_id": message_id,
+                            "original": user_text,
+                            "translated": translated_text,
+                        },
                     )
                     # 오디오 청크가 도착하는 즉시 Twilio로 전송 (전체 완성까지 기다리지 않음)
                     async for chunk in ai_service.text_to_speech_multilingual_stream(translated_text, voice_preset):

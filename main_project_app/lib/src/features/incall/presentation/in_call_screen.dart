@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:main_project_app/src/core/network/backend_client.dart';
 import 'package:main_project_app/src/features/settings/application/settings_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 // Using a shared Message model would be ideal, but for simplicity,
@@ -13,12 +14,14 @@ class Message {
   final String original;
   final String translated;
   final String? refined; // [추가] AI 보정 텍스트
+  final String? pendingId;
   final bool isFromUser;
 
   Message({
     required this.original,
     required this.translated,
     this.refined,
+    this.pendingId,
     required this.isFromUser,
   });
 }
@@ -258,16 +261,11 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
                 }
               }
             } else if (data['type'] == 'user_text') {
-              final lastMsgIndex = _messages.lastIndexWhere(
-                (m) => m.isFromUser && m.original == data['original'],
+              _applyUserTranslation(
+                original: data['original'],
+                translated: data['translated'],
+                messageId: data['message_id'],
               );
-              if (lastMsgIndex != -1) {
-                _messages[lastMsgIndex] = Message(
-                  original: data['original'],
-                  translated: data['translated'],
-                  isFromUser: true,
-                );
-              }
             } else if (data['type'] == 'call_connected') {
               _isCallConnected = true;
             } else if (data['type'] == 'call_ended') {
@@ -320,15 +318,40 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
     super.dispose();
   }
 
+  void _applyUserTranslation({
+    required String original,
+    required String translated,
+    String? messageId,
+  }) {
+    // 이전 서버는 ID 없이 번역을 보낸 순서대로 돌려준다.
+    final index = _messages.indexWhere(
+      (message) => messageId == null
+          ? message.pendingId != null && message.original == original
+          : message.pendingId == messageId,
+    );
+    if (index == -1) return;
+    _messages[index] = Message(
+      original: _messages[index].original,
+      translated: translated,
+      isFromUser: true,
+    );
+  }
+
   void _handleSubmitted(String text) {
     if (text.isEmpty) return;
     // 테스트 모드가 아닐 때만 채널 연결 확인
     if (widget.callId != 'test_mode' && _channel == null) return;
     _textController.clear();
+    final messageId = const Uuid().v4();
 
     setState(() {
       _messages.add(
-        Message(original: text, translated: '(Sending...)', isFromUser: true),
+        Message(
+          original: text,
+          translated: '(Sending...)',
+          isFromUser: true,
+          pendingId: messageId,
+        ),
       );
       _scrollToBottom();
       _isSuggestionVisible = false; // 전송 후 자동완성 숨김
@@ -340,17 +363,11 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
         if (mounted) {
           setState(() {
             // 1. 내 메시지 번역 완료 처리
-            final lastMsgIndex = _messages.lastIndexWhere(
-              (m) => m.isFromUser && m.original == text,
+            _applyUserTranslation(
+              original: text,
+              translated: '$text (번역됨)',
+              messageId: messageId,
             );
-            if (lastMsgIndex != -1) {
-              _messages[lastMsgIndex] = Message(
-                original: text,
-                translated: '$text (번역됨)',
-                refined: null,
-                isFromUser: true,
-              );
-            }
             // 2. 상대방 가짜 응답 추가
             _messages.add(
               Message(
@@ -367,7 +384,11 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
       return;
     }
 
-    final message = jsonEncode({'event': 'frontend_text', 'text': text});
+    final message = jsonEncode({
+      'event': 'frontend_text',
+      'message_id': messageId,
+      'text': text,
+    });
     debugPrint('>>> WebSocket Sending: $message');
     _channel!.sink.add(message);
   }
